@@ -2,22 +2,16 @@
 
 
 [[projects]]
-  branch = "master"
-  name = "github.com/go-gl/gl"
-  packages = ["v3.3-core/gl"]
-  revision = "ac0d3d2af0fe995e2bb09fa6619b716b0c0fc0fa"
+  name = "github.com/mattn/go-runewidth"
+  packages = ["."]
+  revision = "9e777a8366cce605130a531d2cd6363d07ad7317"
+  version = "v0.0.2"
 
 [[projects]]
   branch = "master"
-  name = "github.com/go-gl/glfw"
-  packages = ["v3.2/glfw"]
-  revision = "513e4f2bf85c31fba0fc4907abd7895242ccbe50"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/go-gl/mathgl"
-  packages = ["mgl32"]
-  revision = "062629838a6b477efe492188d39194935ac07cd6"
+  name = "github.com/nsf/termbox-go"
+  packages = ["."]
+  revision = "88b7b944be8bc8d8ec6195fca97c5869ba20f99d"
 
 [[projects]]
   branch = "master"
@@ -25,15 +19,9 @@
   packages = ["."]
   revision = "764c18c78bcfeab70bc9110d9ae3ab8c229e5cb5"
 
-[[projects]]
-  branch = "master"
-  name = "golang.org/x/image"
-  packages = ["math/f32"]
-  revision = "12117c17ca67ffa1ce22e9409f3b0b0a93ac08c7"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "117d8078efe54f4ff6680e180dbc7b9f19087ca1180f7a58c158cfb628601290"
+  inputs-digest = "6ae9f1cf749ccdd2d97d0c513c2ca685965da1ff8cea497cea2229a93b036c8a"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -27,19 +27,3 @@
 
 [prune]
   go-tests = true
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/go-gl/gl"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/go-gl/glfw"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/go-gl/mathgl"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/rthornton128/goncurses"
