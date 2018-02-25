@@ -31,6 +31,7 @@ func main() {
 	if termbox.SetOutputMode(termbox.Output256) != termbox.Output256 {
 		fmt.Println("Could not set 256")
 	}
+	fmt.Println(termbox.SetOutputMode(termbox.Output256))
 	fmt.Println(termbox.Size())
 
 	count := 0
@@ -50,6 +51,5 @@ func main() {
 		toggle = !toggle
 
 		termbox.Flush()
-		runtime.Gosched()
 	}
 }
