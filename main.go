@@ -5,9 +5,8 @@ import (
 	"runtime"
 	"time"
 
+	termbox "github.com/nsf/termbox-go"
 	"github.com/perlw/harle"
-
-	"github.com/nsf/termbox-go"
 )
 
 func init() {
@@ -26,8 +25,6 @@ func main() {
 	}
 	defer termbox.Close()
 
-	fmt.Printf("Termbox isInit? %t\n", termbox.IsInit)
-
 	if termbox.SetOutputMode(termbox.Output256) != termbox.Output256 {
 		fmt.Println("Could not set 256")
 	}
@@ -44,9 +41,9 @@ func main() {
 		}
 
 		if toggle {
-			termbox.SetCell(0, 0, '@', termbox.ColorBlack, termbox.ColorBlack)
+			termbox.SetCell(0, 0, '❄', termbox.ColorWhite, termbox.ColorBlack)
 		} else {
-			termbox.SetCell(0, 0, '@', termbox.ColorWhite, termbox.ColorBlack)
+			termbox.SetCell(0, 0, '☂', termbox.ColorWhite, termbox.ColorBlack)
 		}
 		toggle = !toggle
 
