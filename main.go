@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"runtime"
+	"unsafe"
 
 	"github.com/vulkan-go/glfw/v3.3/glfw"
 	vk "github.com/vulkan-go/vulkan"
@@ -104,6 +105,14 @@ func main() {
 	gpuProperties.Limits.Deref()
 	fmt.Println("Max Image Dimension:", gpuProperties.Limits.MaxImageDimension2D)
 
+	// Surface
+	var surface vk.Surface
+	if result := vk.CreateWindowSurface(instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
+		fmt.Println("err:", "create window surface", result)
+		return
+	}
+	defer vk.DestroySurface(instance, surface, nil)
+
 	// Check queue families
 	var queueFamilyCount uint32
 	vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, nil)
@@ -115,10 +124,19 @@ func main() {
 	queueFamilies := make([]vk.QueueFamilyProperties, queueFamilyCount)
 	vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, queueFamilies)
 	var graphicsFamilyIndex uint32
+	var presentFamilyIndex uint32
 	for i, family := range queueFamilies {
 		family.Deref()
+
+		var presentSupport vk.Bool32
+		vk.GetPhysicalDeviceSurfaceSupport(gpu, uint32(i), surface, &presentSupport)
+
 		if family.QueueCount > 0 && family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
 			graphicsFamilyIndex = uint32(i)
+			if presentSupport > 0 {
+				fmt.Println("Yes! Present support")
+				presentFamilyIndex = uint32(i)
+			}
 		}
 		if family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
 			fmt.Println("family:", i, "graphics")
@@ -131,6 +149,7 @@ func main() {
 		}
 	}
 	fmt.Println("Graphics family index:", graphicsFamilyIndex)
+	fmt.Println("Present family index:", presentFamilyIndex)
 
 	// Create device
 	queuePriorities := []float32{1.0}
@@ -161,8 +180,10 @@ func main() {
 	})()
 
 	// Get command queue
-	var cmdQueue vk.Queue
-	vk.GetDeviceQueue(device, graphicsFamilyIndex, 0, &cmdQueue)
+	var graphicsQueue vk.Queue
+	var presentQueue vk.Queue
+	vk.GetDeviceQueue(device, graphicsFamilyIndex, 0, &graphicsQueue)
+	vk.GetDeviceQueue(device, presentFamilyIndex, 0, &presentQueue)
 
 	// Semaphores
 	var imageAvailableSemaphore vk.Semaphore
@@ -178,14 +199,8 @@ func main() {
 		fmt.Println("err:", "create semaphore, rendering", result)
 		return
 	}
-
-	// Surface
-	var surface vk.Surface
-	if result := vk.CreateWindowSurface(instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
-		fmt.Println("err:", "create window surface", result)
-		return
-	}
-	defer vk.DestroySurface(instance, surface, nil)
+	defer vk.DestroySemaphore(device, imageAvailableSemaphore, nil)
+	defer vk.DestroySemaphore(device, renderingFinishedSemaphore, nil)
 
 	// Swap chain
 	var surfaceCapabilities vk.SurfaceCapabilities
@@ -236,6 +251,97 @@ func main() {
 	if oldSwapchain != vk.NullSwapchain {
 		vk.DestroySwapchain(device, oldSwapchain, nil)
 	}
+	defer vk.DestroySwapchain(device, swapchain, nil)
+
+	// Command queue buffer memory pool
+	var presentQueueCmdPool vk.CommandPool
+	cmdPoolCreateInfo := vk.CommandPoolCreateInfo{
+		SType:            vk.StructureTypeCommandPoolCreateInfo,
+		QueueFamilyIndex: presentFamilyIndex,
+	}
+	if result := vk.CreateCommandPool(device, &cmdPoolCreateInfo, nil, &presentQueueCmdPool); result != vk.Success {
+		fmt.Println("err:", "create command pool", result)
+		return
+	}
+	defer vk.DestroyCommandPool(device, presentQueueCmdPool, nil)
+
+	// Set up Command buffers
+	var imageCount uint32
+	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, nil); result != vk.Success {
+		fmt.Println("err:", "get swapchain image count", result)
+		return
+	}
+	fmt.Println("Swapchain image count:", imageCount)
+	presentQueueCmdBuffers := make([]vk.CommandBuffer, imageCount)
+	cmdBufferAllocateInfo := vk.CommandBufferAllocateInfo{
+		SType:              vk.StructureTypeCommandBufferAllocateInfo,
+		CommandPool:        presentQueueCmdPool,
+		Level:              vk.CommandBufferLevelPrimary,
+		CommandBufferCount: imageCount,
+	}
+	if result := vk.AllocateCommandBuffers(device, &cmdBufferAllocateInfo, presentQueueCmdBuffers); result != vk.Success {
+		fmt.Println("err:", "allocate command buffers", result)
+		return
+	}
+	defer vk.FreeCommandBuffers(device, presentQueueCmdPool, imageCount, presentQueueCmdBuffers)
+
+	// Record command buffers
+	swapChainImages := make([]vk.Image, imageCount)
+	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, swapChainImages); result != vk.Success {
+		fmt.Println("err:", "get swapchain images", result)
+		return
+	}
+	cmdBufferBeginInfo := vk.CommandBufferBeginInfo{
+		SType: vk.StructureTypeCommandBufferBeginInfo,
+		Flags: vk.CommandBufferUsageFlags(vk.CommandBufferUsageSimultaneousUseBit),
+	}
+	clearColor := (func(r, g, b, a float32) vk.ClearColorValue {
+		var vkValue vk.ClearColorValue
+		clearColor := (*[4]float32)(unsafe.Pointer(&vkValue))
+		clearColor[0] = r
+		clearColor[1] = g
+		clearColor[2] = b
+		clearColor[3] = a
+		return vkValue
+	})(0.5, 0.5, 1.0, 0.0)
+	imageSubresourceRange := vk.ImageSubresourceRange{
+		AspectMask: vk.ImageAspectFlags(vk.ImageAspectColorBit),
+		LevelCount: 1,
+		LayerCount: 1,
+	}
+	for i := range swapChainImages {
+		barrierFromPresentToClear := vk.ImageMemoryBarrier{
+			SType:               vk.StructureTypeImageMemoryBarrier,
+			SrcAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
+			DstAccessMask:       vk.AccessFlags(vk.AccessTransferWriteBit),
+			OldLayout:           vk.ImageLayoutUndefined,
+			NewLayout:           vk.ImageLayoutTransferDstOptimal,
+			SrcQueueFamilyIndex: presentFamilyIndex,
+			DstQueueFamilyIndex: presentFamilyIndex,
+			Image:               swapChainImages[i],
+			SubresourceRange:    imageSubresourceRange,
+		}
+		barrierFromClearToPresent := vk.ImageMemoryBarrier{
+			SType:               vk.StructureTypeImageMemoryBarrier,
+			SrcAccessMask:       vk.AccessFlags(vk.AccessTransferWriteBit),
+			DstAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
+			OldLayout:           vk.ImageLayoutTransferDstOptimal,
+			NewLayout:           vk.ImageLayoutPresentSrc,
+			SrcQueueFamilyIndex: presentFamilyIndex,
+			DstQueueFamilyIndex: presentFamilyIndex,
+			Image:               swapChainImages[i],
+			SubresourceRange:    imageSubresourceRange,
+		}
+
+		vk.BeginCommandBuffer(presentQueueCmdBuffers[i], &cmdBufferBeginInfo)
+		vk.CmdPipelineBarrier(presentQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageTransferBit), vk.PipelineStageFlags(vk.PipelineStageTransferBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromPresentToClear})
+		vk.CmdClearColorImage(presentQueueCmdBuffers[i], swapChainImages[i], vk.ImageLayoutTransferDstOptimal, &clearColor, 1, []vk.ImageSubresourceRange{imageSubresourceRange})
+		vk.CmdPipelineBarrier(presentQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageTransferBit), vk.PipelineStageFlags(vk.PipelineStageBottomOfPipeBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromClearToPresent})
+		if result := vk.EndCommandBuffer(presentQueueCmdBuffers[i]); result != vk.Success {
+			fmt.Println("err:", "record command buffer", i, ":", result)
+			return
+		}
+	}
 
 	for !window.ShouldClose() {
 		var imageIndex uint32
@@ -261,23 +367,51 @@ func main() {
 				vk.PipelineStageFlags(vk.PipelineStageTransferBit),
 			},
 			CommandBufferCount: 1,
-			PCommandBuffers:    []vk.CommandBuffer{
-				// Missing command buffers
+			PCommandBuffers: []vk.CommandBuffer{
+				presentQueueCmdBuffers[imageIndex],
 			},
 			SignalSemaphoreCount: 1,
 			PSignalSemaphores: []vk.Semaphore{
 				renderingFinishedSemaphore,
 			},
 		}
-		if result := vk.QueueSubmit(nil /* present queue */, 1, []vk.SubmitInfo{
+		if result := vk.QueueSubmit(presentQueue, 1, []vk.SubmitInfo{
 			submitInfo,
 		}, vk.NullFence); result != vk.Success {
 			fmt.Println("err:", "queue submit", result)
 			return
 		}
 
+		presentInfo := vk.PresentInfo{
+			SType:              vk.StructureTypePresentInfo,
+			WaitSemaphoreCount: 1,
+			PWaitSemaphores: []vk.Semaphore{
+				renderingFinishedSemaphore,
+			},
+			SwapchainCount: 1,
+			PSwapchains: []vk.Swapchain{
+				swapchain,
+			},
+			PImageIndices: []uint32{
+				imageIndex,
+			},
+		}
+		result = vk.QueuePresent(presentQueue, &presentInfo)
+		switch result {
+		case vk.Success:
+			break
+		case vk.Suboptimal:
+			fallthrough
+		case vk.ErrorOutOfDate:
+			fmt.Println("outdate")
+		default:
+			fmt.Println("err:", "image present", result)
+			return
+		}
+
 		glfw.PollEvents()
 	}
 
+	vk.DeviceWaitIdle(device)
 	fmt.Println("fin")
 }
