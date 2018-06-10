@@ -402,6 +402,8 @@ func main() {
 
 	// Creating framebuffers
 	// TODO: Use single framebuffer, render to texture, then make swapchain copy from texture
+	framebufferWidth := uint32(300)
+	framebufferHeight := uint32(300)
 	framebuffers := make([]vk.Framebuffer, len(swapChainImages))
 	framebufferViews := make([]vk.ImageView, len(swapChainImages))
 	for i, img := range swapChainImages {
@@ -437,8 +439,8 @@ func main() {
 			PAttachments: []vk.ImageView{
 				framebufferViews[i],
 			},
-			Width:  640,
-			Height: 480,
+			Width:  framebufferWidth,
+			Height: framebufferHeight,
 			Layers: 1,
 		}
 		if result := vk.CreateFramebuffer(device, &framebufferCreateInfo, nil, &framebuffers[i]); result != vk.Success {
@@ -520,6 +522,37 @@ func main() {
 		SType:                  vk.StructureTypePipelineInputAssemblyStateCreateInfo,
 		Topology:               vk.PrimitiveTopologyTriangleList,
 		PrimitiveRestartEnable: vk.False,
+	}
+
+	// Viewport
+	viewport := vk.Viewport{
+		X:        0.0,
+		Y:        0.0,
+		Width:    float32(framebufferWidth),
+		Height:   float32(framebufferHeight),
+		MinDepth: 0.0,
+		MaxDepth: 1.0,
+	}
+	scissor := vk.Rect2D{
+		Offset: vk.Offset2D{
+			X: 0,
+			Y: 0,
+		},
+		Extent: vk.Extent2D{
+			Width:  framebufferWidth,
+			Height: framebufferHeight,
+		},
+	}
+	viewportStateCreateInfo := vk.PipelineViewportStateCreateInfo{
+		SType:         vk.StructureTypePipelineViewportStateCreateInfo,
+		ViewportCount: 1,
+		PViewports: []vk.Viewport{
+			viewport,
+		},
+		ScissorCount: 1,
+		PScissors: []vk.Rect2D{
+			scissor,
+		},
 	}
 	// -Set up render pass
 
