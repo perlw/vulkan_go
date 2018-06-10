@@ -30,6 +30,7 @@ func main() {
 	}
 	defer window.Destroy()
 
+	// +Set up Vulkan
 	// Set up Vulkan instance
 	exts := vk.GetRequiredInstanceExtensions()
 	//exts = append(exts, "VK_EXT_debug_report")
@@ -178,7 +179,9 @@ func main() {
 		vk.DeviceWaitIdle(device)
 		vk.DestroyDevice(device, nil)
 	})()
+	// -Set up Vulkan
 
+	// +Prepare rendering
 	// Get command queue
 	var graphicsQueue vk.Queue
 	var presentQueue vk.Queue
@@ -342,6 +345,7 @@ func main() {
 			return
 		}
 	}
+	// -Prepare rendering
 
 	for !window.ShouldClose() {
 		var imageIndex uint32
@@ -351,7 +355,7 @@ func main() {
 			fallthrough
 		case vk.Suboptimal:
 		case vk.ErrorOutOfDate:
-			fmt.Println("outdate")
+			fmt.Println("aquire outdate")
 		default:
 			fmt.Println("err:", "aquire image", result)
 			return
@@ -403,7 +407,7 @@ func main() {
 		case vk.Suboptimal:
 			fallthrough
 		case vk.ErrorOutOfDate:
-			fmt.Println("outdate")
+			fmt.Println("present outdate")
 		default:
 			fmt.Println("err:", "image present", result)
 			return
