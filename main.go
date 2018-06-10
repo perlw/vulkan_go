@@ -554,6 +554,53 @@ func main() {
 			scissor,
 		},
 	}
+
+	// Raster state
+	rasterStateCreateInfo := vk.PipelineRasterizationStateCreateInfo{
+		SType:                   vk.StructureTypePipelineRasterizationStateCreateInfo,
+		DepthClampEnable:        vk.False,
+		RasterizerDiscardEnable: vk.False,
+		PolygonMode:             vk.PolygonModeFill,
+		CullMode:                vk.CullModeFlags(vk.CullModeBackBit),
+		FrontFace:               vk.FrontFaceCounterClockwise,
+		DepthBiasEnable:         vk.False,
+		DepthBiasConstantFactor: 0.0,
+		DepthBiasClamp:          0.0,
+		DepthBiasSlopeFactor:    0.0,
+		LineWidth:               1.0,
+	}
+
+	// Multisample state
+	multisampleStateCreateInfo := vk.PipelineMultisampleStateCreateInfo{
+		SType:                 vk.StructureTypePipelineMultisampleStateCreateInfo,
+		RasterizationSamples:  vk.SampleCount1Bit,
+		SampleShadingEnable:   vk.False,
+		MinSampleShading:      1.0,
+		AlphaToCoverageEnable: vk.False,
+		AlphaToOneEnable:      vk.False,
+	}
+
+	// Blending state
+	colorBlendAttachmentState := vk.PipelineColorBlendAttachmentState{
+		BlendEnable:         vk.False,
+		SrcColorBlendFactor: vk.BlendFactorOne,
+		DstColorBlendFactor: vk.BlendFactorZero,
+		ColorBlendOp:        vk.BlendOpAdd,
+		SrcAlphaBlendFactor: vk.BlendFactorOne,
+		DstAlphaBlendFactor: vk.BlendFactorZero,
+		AlphaBlendOp:        vk.BlendOpAdd,
+		ColorWriteMask:      vk.ColorComponentFlags(vk.ColorComponentRBit | vk.ColorComponentGBit | vk.ColorComponentBBit | vk.ColorComponentABit),
+	}
+	colorBlendStateCreateInfo := vk.PipelineColorBlendStateCreateInfo{
+		SType:           vk.StructureTypePipelineColorBlendStateCreateInfo,
+		LogicOpEnable:   vk.False,
+		LogicOp:         vk.LogicOpCopy,
+		AttachmentCount: 1,
+		PAttachments: []vk.PipelineColorBlendAttachmentState{
+			colorBlendAttachmentState,
+		},
+		BlendConstants: [4]float32{0.0, 0.0, 0.0, 0.0},
+	}
 	// -Set up render pass
 
 	for !window.ShouldClose() {
