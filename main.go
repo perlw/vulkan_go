@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"runtime"
 	"unsafe"
 
@@ -12,6 +13,17 @@ import (
 func init() {
 	runtime.LockOSThread()
 	//runtime.GOMAXPROCS(2)
+}
+
+func sliceUint32(data []byte) []uint32 {
+	const m = 0x7fffffff
+	return (*[m / 4]uint32)(unsafe.Pointer((*sliceHeader)(unsafe.Pointer(&data)).Data))[:len(data)/4]
+}
+
+type sliceHeader struct {
+	Data uintptr
+	Len  int
+	Cap  int
 }
 
 func main() {
@@ -441,6 +453,74 @@ func main() {
 			vk.DestroyFramebuffer(device, framebuffers[i], nil)
 		}
 	})()
+
+	// Shaders
+	var vertShaderModule vk.ShaderModule
+	var fragShaderModule vk.ShaderModule
+	{
+		shaderCode, err := ioutil.ReadFile("tri.vert.spv")
+		if err != nil {
+			fmt.Println("err:", "read vertex code", err.Error())
+			return
+		}
+
+		shaderModuleCreateInfo := vk.ShaderModuleCreateInfo{
+			SType:    vk.StructureTypeShaderModuleCreateInfo,
+			CodeSize: uint(len(shaderCode)),
+			PCode:    sliceUint32(shaderCode),
+		}
+		if result := vk.CreateShaderModule(device, &shaderModuleCreateInfo, nil, &vertShaderModule); result != vk.Success {
+			fmt.Println("err:", "create framebuffer", result)
+			return
+		}
+	}
+	defer vk.DestroyShaderModule(device, vertShaderModule, nil)
+	{
+		shaderCode, err := ioutil.ReadFile("tri.frag.spv")
+		if err != nil {
+			fmt.Println("err:", "read frag code", err.Error())
+			return
+		}
+
+		shaderModuleCreateInfo := vk.ShaderModuleCreateInfo{
+			SType:    vk.StructureTypeShaderModuleCreateInfo,
+			CodeSize: uint(len(shaderCode)),
+			PCode:    sliceUint32(shaderCode),
+		}
+		if result := vk.CreateShaderModule(device, &shaderModuleCreateInfo, nil, &fragShaderModule); result != vk.Success {
+			fmt.Println("err:", "create framebuffer", result)
+			return
+		}
+	}
+	defer vk.DestroyShaderModule(device, fragShaderModule, nil)
+
+	// Shader stages
+	shaderStageCreateInfo := []vk.PipelineShaderStageCreateInfo{
+		{
+			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
+			Stage:  vk.ShaderStageVertexBit,
+			Module: vertShaderModule,
+			PName:  "tri_shader",
+		},
+		{
+			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
+			Stage:  vk.ShaderStageFragmentBit,
+			Module: fragShaderModule,
+			PName:  "tri_shader",
+		},
+	}
+
+	// Vertex Input
+	vertexInputStateCreateInfo := vk.PipelineVertexInputStateCreateInfo{
+		SType: vk.StructureTypePipelineVertexInputStateCreateInfo,
+	}
+
+	// Input assembly
+	inputAssemblyStateCreateInfo := vk.PipelineInputAssemblyStateCreateInfo{
+		SType:                  vk.StructureTypePipelineInputAssemblyStateCreateInfo,
+		Topology:               vk.PrimitiveTopologyTriangleList,
+		PrimitiveRestartEnable: vk.False,
+	}
 	// -Set up render pass
 
 	for !window.ShouldClose() {
