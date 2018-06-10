@@ -347,6 +347,102 @@ func main() {
 	}
 	// -Prepare rendering
 
+	// +Set up render pass
+	// Creating render pass
+	attachmentDescriptions := []vk.AttachmentDescription{
+		{
+			Format:         format.Format,
+			Samples:        vk.SampleCount1Bit,
+			LoadOp:         vk.AttachmentLoadOpClear,
+			StoreOp:        vk.AttachmentStoreOpStore,
+			StencilLoadOp:  vk.AttachmentLoadOpDontCare,
+			StencilStoreOp: vk.AttachmentStoreOpDontCare,
+			InitialLayout:  vk.ImageLayoutPresentSrc,
+			FinalLayout:    vk.ImageLayoutPresentSrc,
+		},
+	}
+	colorAttachmentReferences := []vk.AttachmentReference{
+		{
+			Layout: vk.ImageLayoutColorAttachmentOptimal,
+		},
+	}
+	subpassDescriptions := []vk.SubpassDescription{
+		{
+			PipelineBindPoint:    vk.PipelineBindPointGraphics,
+			ColorAttachmentCount: 1,
+			PColorAttachments:    colorAttachmentReferences,
+		},
+	}
+
+	renderPassCreateInfo := vk.RenderPassCreateInfo{
+		SType:           vk.StructureTypeRenderPassCreateInfo,
+		AttachmentCount: 1,
+		PAttachments:    attachmentDescriptions,
+		SubpassCount:    1,
+		PSubpasses:      subpassDescriptions,
+	}
+	var renderPass vk.RenderPass
+	if result := vk.CreateRenderPass(device, &renderPassCreateInfo, nil, &renderPass); result != vk.Success {
+		fmt.Println("err:", "create render pass", result)
+		return
+	}
+	defer vk.DestroyRenderPass(device, renderPass, nil)
+
+	// Creating framebuffers
+	// TODO: Use single framebuffer, render to texture, then make swapchain copy from texture
+	framebuffers := make([]vk.Framebuffer, len(swapChainImages))
+	framebufferViews := make([]vk.ImageView, len(swapChainImages))
+	for i, img := range swapChainImages {
+		imageViewCreateInfo := vk.ImageViewCreateInfo{
+			SType:    vk.StructureTypeImageViewCreateInfo,
+			Image:    img,
+			ViewType: vk.ImageViewType2d,
+			Format:   format.Format,
+			Components: vk.ComponentMapping{
+				R: vk.ComponentSwizzleIdentity,
+				G: vk.ComponentSwizzleIdentity,
+				B: vk.ComponentSwizzleIdentity,
+				A: vk.ComponentSwizzleIdentity,
+			},
+			SubresourceRange: vk.ImageSubresourceRange{
+				AspectMask:     vk.ImageAspectFlags(vk.ImageAspectColorBit),
+				BaseMipLevel:   0,
+				LevelCount:     1,
+				BaseArrayLayer: 0,
+				LayerCount:     1,
+			},
+		}
+		if result := vk.CreateImageView(device, &imageViewCreateInfo, nil, &framebufferViews[i]); result != vk.Success {
+			fmt.Println("err:", "create image view", i, ":", result)
+			return
+		}
+
+		// Framebuffer parameters
+		framebufferCreateInfo := vk.FramebufferCreateInfo{
+			SType:           vk.StructureTypeFramebufferCreateInfo,
+			RenderPass:      renderPass,
+			AttachmentCount: 1,
+			PAttachments: []vk.ImageView{
+				framebufferViews[i],
+			},
+			Width:  640,
+			Height: 480,
+			Layers: 1,
+		}
+		if result := vk.CreateFramebuffer(device, &framebufferCreateInfo, nil, &framebuffers[i]); result != vk.Success {
+			fmt.Println("err:", "create framebuffer", result)
+			return
+		}
+	}
+
+	defer (func() {
+		for i := range swapChainImages {
+			vk.DestroyImageView(device, framebufferViews[i], nil)
+			vk.DestroyFramebuffer(device, framebuffers[i], nil)
+		}
+	})()
+	// -Set up render pass
+
 	for !window.ShouldClose() {
 		var imageIndex uint32
 		result := vk.AcquireNextImage(device, swapchain, vk.MaxUint64, imageAvailableSemaphore, vk.NullFence, &imageIndex)
