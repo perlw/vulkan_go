@@ -267,96 +267,6 @@ func main() {
 		vk.DestroySwapchain(device, oldSwapchain, nil)
 	}
 	defer vk.DestroySwapchain(device, swapchain, nil)
-
-	// Command queue buffer memory pool
-	var presentQueueCmdPool vk.CommandPool
-	cmdPoolCreateInfo := vk.CommandPoolCreateInfo{
-		SType:            vk.StructureTypeCommandPoolCreateInfo,
-		QueueFamilyIndex: presentFamilyIndex,
-	}
-	if result := vk.CreateCommandPool(device, &cmdPoolCreateInfo, nil, &presentQueueCmdPool); result != vk.Success {
-		fmt.Println("err:", "create command pool", result)
-		return
-	}
-	defer vk.DestroyCommandPool(device, presentQueueCmdPool, nil)
-
-	// Set up Command buffers
-	var imageCount uint32
-	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, nil); result != vk.Success {
-		fmt.Println("err:", "get swapchain image count", result)
-		return
-	}
-	fmt.Println("Swapchain image count:", imageCount)
-	presentQueueCmdBuffers := make([]vk.CommandBuffer, imageCount)
-	cmdBufferAllocateInfo := vk.CommandBufferAllocateInfo{
-		SType:              vk.StructureTypeCommandBufferAllocateInfo,
-		CommandPool:        presentQueueCmdPool,
-		Level:              vk.CommandBufferLevelPrimary,
-		CommandBufferCount: imageCount,
-	}
-	if result := vk.AllocateCommandBuffers(device, &cmdBufferAllocateInfo, presentQueueCmdBuffers); result != vk.Success {
-		fmt.Println("err:", "allocate command buffers", result)
-		return
-	}
-	defer vk.FreeCommandBuffers(device, presentQueueCmdPool, imageCount, presentQueueCmdBuffers)
-
-	// Record command buffers
-	swapChainImages := make([]vk.Image, imageCount)
-	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, swapChainImages); result != vk.Success {
-		fmt.Println("err:", "get swapchain images", result)
-		return
-	}
-	cmdBufferBeginInfo := vk.CommandBufferBeginInfo{
-		SType: vk.StructureTypeCommandBufferBeginInfo,
-		Flags: vk.CommandBufferUsageFlags(vk.CommandBufferUsageSimultaneousUseBit),
-	}
-	clearColor := (func(r, g, b, a float32) vk.ClearColorValue {
-		var vkValue vk.ClearColorValue
-		clearColor := (*[4]float32)(unsafe.Pointer(&vkValue))
-		clearColor[0] = r
-		clearColor[1] = g
-		clearColor[2] = b
-		clearColor[3] = a
-		return vkValue
-	})(0.5, 0.5, 1.0, 0.0)
-	imageSubresourceRange := vk.ImageSubresourceRange{
-		AspectMask: vk.ImageAspectFlags(vk.ImageAspectColorBit),
-		LevelCount: 1,
-		LayerCount: 1,
-	}
-	for i := range swapChainImages {
-		barrierFromPresentToClear := vk.ImageMemoryBarrier{
-			SType:               vk.StructureTypeImageMemoryBarrier,
-			SrcAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
-			DstAccessMask:       vk.AccessFlags(vk.AccessTransferWriteBit),
-			OldLayout:           vk.ImageLayoutUndefined,
-			NewLayout:           vk.ImageLayoutTransferDstOptimal,
-			SrcQueueFamilyIndex: presentFamilyIndex,
-			DstQueueFamilyIndex: presentFamilyIndex,
-			Image:               swapChainImages[i],
-			SubresourceRange:    imageSubresourceRange,
-		}
-		barrierFromClearToPresent := vk.ImageMemoryBarrier{
-			SType:               vk.StructureTypeImageMemoryBarrier,
-			SrcAccessMask:       vk.AccessFlags(vk.AccessTransferWriteBit),
-			DstAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
-			OldLayout:           vk.ImageLayoutTransferDstOptimal,
-			NewLayout:           vk.ImageLayoutPresentSrc,
-			SrcQueueFamilyIndex: presentFamilyIndex,
-			DstQueueFamilyIndex: presentFamilyIndex,
-			Image:               swapChainImages[i],
-			SubresourceRange:    imageSubresourceRange,
-		}
-
-		vk.BeginCommandBuffer(presentQueueCmdBuffers[i], &cmdBufferBeginInfo)
-		vk.CmdPipelineBarrier(presentQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageTransferBit), vk.PipelineStageFlags(vk.PipelineStageTransferBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromPresentToClear})
-		vk.CmdClearColorImage(presentQueueCmdBuffers[i], swapChainImages[i], vk.ImageLayoutTransferDstOptimal, &clearColor, 1, []vk.ImageSubresourceRange{imageSubresourceRange})
-		vk.CmdPipelineBarrier(presentQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageTransferBit), vk.PipelineStageFlags(vk.PipelineStageBottomOfPipeBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromClearToPresent})
-		if result := vk.EndCommandBuffer(presentQueueCmdBuffers[i]); result != vk.Success {
-			fmt.Println("err:", "record command buffer", i, ":", result)
-			return
-		}
-	}
 	// -Prepare rendering
 
 	// +Set up render pass
@@ -401,6 +311,19 @@ func main() {
 	defer vk.DestroyRenderPass(device, renderPass, nil)
 
 	// Creating framebuffers
+	var imageCount uint32
+	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, nil); result != vk.Success {
+		fmt.Println("err:", "get swapchain image count", result)
+		return
+	}
+	fmt.Println("Swapchain image count:", imageCount)
+
+	swapChainImages := make([]vk.Image, imageCount)
+	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, swapChainImages); result != vk.Success {
+		fmt.Println("err:", "get swapchain images", result)
+		return
+	}
+
 	// TODO: Use single framebuffer, render to texture, then make swapchain copy from texture
 	framebufferWidth := uint32(300)
 	framebufferHeight := uint32(300)
@@ -498,6 +421,7 @@ func main() {
 
 	// Shader stages
 	// PName must be "main"???
+	// Oh.. it's the name of the entry function in the shader...
 	shaderStageCreateInfos := []vk.PipelineShaderStageCreateInfo{
 		{
 			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
@@ -642,6 +566,102 @@ func main() {
 		return
 	}
 	defer vk.DestroyPipeline(device, graphicsPipeline[0], nil)
+
+	// Set up Command buffers
+	// Command pool
+	var graphicsQueueCmdPool vk.CommandPool
+	graphicsCmdPoolCreateInfo := vk.CommandPoolCreateInfo{
+		SType:            vk.StructureTypeCommandPoolCreateInfo,
+		QueueFamilyIndex: graphicsFamilyIndex,
+	}
+	if result := vk.CreateCommandPool(device, &graphicsCmdPoolCreateInfo, nil, &graphicsQueueCmdPool); result != vk.Success {
+		fmt.Println("err:", "create graphics command pool", result)
+		return
+	}
+	defer vk.DestroyCommandPool(device, graphicsQueueCmdPool, nil)
+
+	// Set up Command buffers
+	graphicsQueueCmdBuffers := make([]vk.CommandBuffer, imageCount)
+	graphicsCmdBufferAllocateInfo := vk.CommandBufferAllocateInfo{
+		SType:              vk.StructureTypeCommandBufferAllocateInfo,
+		CommandPool:        graphicsQueueCmdPool,
+		Level:              vk.CommandBufferLevelPrimary,
+		CommandBufferCount: imageCount,
+	}
+	if result := vk.AllocateCommandBuffers(device, &graphicsCmdBufferAllocateInfo, graphicsQueueCmdBuffers); result != vk.Success {
+		fmt.Println("err:", "allocate graphics command buffers", result)
+		return
+	}
+	defer vk.FreeCommandBuffers(device, graphicsQueueCmdPool, imageCount, graphicsQueueCmdBuffers)
+
+	// Record the buffers
+	graphicsCmdBufferBeginInfo := vk.CommandBufferBeginInfo{
+		SType: vk.StructureTypeCommandBufferBeginInfo,
+		Flags: vk.CommandBufferUsageFlags(vk.CommandBufferUsageSimultaneousUseBit),
+	}
+	graphicsSubresourceRange := vk.ImageSubresourceRange{
+		AspectMask: vk.ImageAspectFlags(vk.ImageAspectColorBit),
+		LevelCount: 1,
+		LayerCount: 1,
+	}
+	for i := range graphicsQueueCmdBuffers {
+		vk.BeginCommandBuffer(graphicsQueueCmdBuffers[i], &graphicsCmdBufferBeginInfo)
+
+		barrierFromPresentToDraw := vk.ImageMemoryBarrier{
+			SType:               vk.StructureTypeImageMemoryBarrier,
+			SrcAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
+			DstAccessMask:       vk.AccessFlags(vk.AccessColorAttachmentWriteBit),
+			OldLayout:           vk.ImageLayoutPresentSrc,
+			NewLayout:           vk.ImageLayoutPresentSrc,
+			SrcQueueFamilyIndex: presentFamilyIndex,
+			DstQueueFamilyIndex: graphicsFamilyIndex,
+			Image:               swapChainImages[i],
+			SubresourceRange:    graphicsSubresourceRange,
+		}
+		vk.CmdPipelineBarrier(graphicsQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageColorAttachmentOutputBit), vk.PipelineStageFlags(vk.PipelineStageColorAttachmentOutputBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromPresentToDraw})
+
+		renderPassBeginInfo := vk.RenderPassBeginInfo{
+			SType:       vk.StructureTypeRenderPassBeginInfo,
+			RenderPass:  renderPass,
+			Framebuffer: framebuffers[i],
+			RenderArea: vk.Rect2D{
+				Offset: vk.Offset2D{
+					X: 0,
+					Y: 0,
+				},
+				Extent: vk.Extent2D{
+					Width:  framebufferWidth,
+					Height: framebufferHeight,
+				},
+			},
+			ClearValueCount: 1,
+			PClearValues: []vk.ClearValue{
+				vk.NewClearValue([]float32{1.0, 0.8, 0.4, 0.0}),
+			},
+		}
+		vk.CmdBeginRenderPass(graphicsQueueCmdBuffers[i], &renderPassBeginInfo, vk.SubpassContentsInline)
+		vk.CmdBindPipeline(graphicsQueueCmdBuffers[i], vk.PipelineBindPointGraphics, graphicsPipeline[0])
+		vk.CmdDraw(graphicsQueueCmdBuffers[i], 3, 1, 0, 0)
+		vk.CmdEndRenderPass(graphicsQueueCmdBuffers[i])
+
+		barrierFromDrawToPresent := vk.ImageMemoryBarrier{
+			SType:               vk.StructureTypeImageMemoryBarrier,
+			SrcAccessMask:       vk.AccessFlags(vk.AccessColorAttachmentWriteBit),
+			DstAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
+			OldLayout:           vk.ImageLayoutPresentSrc,
+			NewLayout:           vk.ImageLayoutPresentSrc,
+			SrcQueueFamilyIndex: graphicsFamilyIndex,
+			DstQueueFamilyIndex: presentFamilyIndex,
+			Image:               swapChainImages[i],
+			SubresourceRange:    graphicsSubresourceRange,
+		}
+		vk.CmdPipelineBarrier(graphicsQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageColorAttachmentOutputBit), vk.PipelineStageFlags(vk.PipelineStageBottomOfPipeBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromDrawToPresent})
+
+		if result := vk.EndCommandBuffer(graphicsQueueCmdBuffers[i]); result != vk.Success {
+			fmt.Println("err:", "record graphics command buffer", i, ":", result)
+			return
+		}
+	}
 	// -Set up render pass
 
 	fmt.Println("Drawing")
@@ -670,14 +690,14 @@ func main() {
 			},
 			CommandBufferCount: 1,
 			PCommandBuffers: []vk.CommandBuffer{
-				presentQueueCmdBuffers[imageIndex],
+				graphicsQueueCmdBuffers[imageIndex],
 			},
 			SignalSemaphoreCount: 1,
 			PSignalSemaphores: []vk.Semaphore{
 				renderingFinishedSemaphore,
 			},
 		}
-		if result := vk.QueueSubmit(presentQueue, 1, []vk.SubmitInfo{
+		if result := vk.QueueSubmit(graphicsQueue, 1, []vk.SubmitInfo{
 			submitInfo,
 		}, vk.NullFence); result != vk.Success {
 			fmt.Println("err:", "queue submit", result)
