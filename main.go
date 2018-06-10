@@ -497,18 +497,19 @@ func main() {
 	defer vk.DestroyShaderModule(device, fragShaderModule, nil)
 
 	// Shader stages
-	shaderStageCreateInfo := []vk.PipelineShaderStageCreateInfo{
+	// PName must be "main"???
+	shaderStageCreateInfos := []vk.PipelineShaderStageCreateInfo{
 		{
 			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
 			Stage:  vk.ShaderStageVertexBit,
 			Module: vertShaderModule,
-			PName:  "tri_shader",
+			PName:  "main\x00",
 		},
 		{
 			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
 			Stage:  vk.ShaderStageFragmentBit,
 			Module: fragShaderModule,
-			PName:  "tri_shader",
+			PName:  "main\x00",
 		},
 	}
 
@@ -601,8 +602,49 @@ func main() {
 		},
 		BlendConstants: [4]float32{0.0, 0.0, 0.0, 0.0},
 	}
+
+	// Dynamic state
+	dynamicStateCreateInfo := vk.PipelineDynamicStateCreateInfo{
+		SType: vk.StructureTypePipelineDynamicStateCreateInfo,
+	}
+
+	// Pipeline layout
+	layoutCreateInfo := vk.PipelineLayoutCreateInfo{
+		SType: vk.StructureTypePipelineLayoutCreateInfo,
+	}
+	var pipelineLayout vk.PipelineLayout
+	if result := vk.CreatePipelineLayout(device, &layoutCreateInfo, nil, &pipelineLayout); result != vk.Success {
+		fmt.Println("err:", "create pipeline layout", result)
+		return
+	}
+	defer vk.DestroyPipelineLayout(device, pipelineLayout, nil)
+
+	// Graphics pipeline
+	pipelineCreateInfo := []vk.GraphicsPipelineCreateInfo{
+		{
+			SType:               vk.StructureTypeGraphicsPipelineCreateInfo,
+			StageCount:          uint32(len(shaderStageCreateInfos)),
+			PStages:             shaderStageCreateInfos,
+			PVertexInputState:   &vertexInputStateCreateInfo,
+			PDynamicState:       &dynamicStateCreateInfo,
+			PInputAssemblyState: &inputAssemblyStateCreateInfo,
+			PViewportState:      &viewportStateCreateInfo,
+			PRasterizationState: &rasterStateCreateInfo,
+			PMultisampleState:   &multisampleStateCreateInfo,
+			PColorBlendState:    &colorBlendStateCreateInfo,
+			Layout:              pipelineLayout,
+			RenderPass:          renderPass,
+		},
+	}
+	graphicsPipeline := make([]vk.Pipeline, 1)
+	if result := vk.CreateGraphicsPipelines(device, nil, 1, pipelineCreateInfo, nil, graphicsPipeline); result != vk.Success {
+		fmt.Println("err:", "create pipeline layout", result)
+		return
+	}
+	defer vk.DestroyPipeline(device, graphicsPipeline[0], nil)
 	// -Set up render pass
 
+	fmt.Println("Drawing")
 	for !window.ShouldClose() {
 		var imageIndex uint32
 		result := vk.AcquireNextImage(device, swapchain, vk.MaxUint64, imageAvailableSemaphore, vk.NullFence, &imageIndex)
