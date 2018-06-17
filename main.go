@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/pkg/errors"
 	"github.com/vulkan-go/glfw/v3.3/glfw"
 	vk "github.com/vulkan-go/vulkan"
 )
@@ -15,35 +16,43 @@ func init() {
 	//runtime.GOMAXPROCS(2)
 }
 
-func sliceUint32(data []byte) []uint32 {
-	const m = 0x7fffffff
-	return (*[m / 4]uint32)(unsafe.Pointer((*sliceHeader)(unsafe.Pointer(&data)).Data))[:len(data)/4]
-}
-
+// +Byte slice to uint32 slice
 type sliceHeader struct {
 	Data uintptr
 	Len  int
 	Cap  int
 }
 
-func main() {
-	glfw.Init()
-	defer glfw.Terminate()
+func sliceUint32(data []byte) []uint32 {
+	const m = 0x7fffffff
+	return (*[m / 4]uint32)(unsafe.Pointer((*sliceHeader)(unsafe.Pointer(&data)).Data))[:len(data)/4]
+}
+
+// -Byte slice to uint32 slice
+
+func vkString(str string) string {
+	if len(str) == 0 {
+		return "\x00"
+	} else if str[len(str)-1] != '\x00' {
+		return str + "\x00"
+	}
+	return str
+}
+
+const EngineName = "MYRLE"
+
+type Myrle struct {
+	instance vk.Instance
+}
+
+func NewMyrle(appName string) (*Myrle, error) {
+	myrle := Myrle{}
+
 	if err := vk.Init(); err != nil {
 		fmt.Println("err:", err.Error())
-		return
+		return nil, errors.Wrap(err, "could not initialize vulkan")
 	}
 
-	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
-	glfw.WindowHint(glfw.Resizable, glfw.False)
-	window, err := glfw.CreateWindow(640, 480, "GLFW: Abyssal Drifter", nil, nil)
-	if err != nil {
-		panic(err.Error())
-	}
-	defer window.Destroy()
-
-	// +Set up Vulkan
-	// Set up Vulkan instance
 	exts := vk.GetRequiredInstanceExtensions()
 	//exts = append(exts, "VK_EXT_debug_report")
 
@@ -51,9 +60,9 @@ func main() {
 		SType: vk.StructureTypeInstanceCreateInfo,
 		PApplicationInfo: &vk.ApplicationInfo{
 			SType:              vk.StructureTypeApplicationInfo,
-			PApplicationName:   "Abyssal Drifter\x00",
+			PApplicationName:   vkString(appName),
 			ApplicationVersion: vk.MakeVersion(1, 0, 0),
-			PEngineName:        "MYRLE\x00",
+			PEngineName:        vkString(EngineName),
 			EngineVersion:      vk.MakeVersion(0, 0, 1),
 			ApiVersion:         vk.ApiVersion10,
 		},
@@ -63,20 +72,44 @@ func main() {
 		PpEnabledExtensionNames: exts,
 	}
 
-	var instance vk.Instance
-	if result := vk.CreateInstance(&instanceInfo, nil, &instance); result != vk.Success {
+	if result := vk.CreateInstance(&instanceInfo, nil, &myrle.instance); result != vk.Success {
 		fmt.Println("err:", "instance", result)
-		return
+		return nil, errors.New(fmt.Sprintf("could not create instance, vk=%d", result))
 	}
-	defer vk.DestroyInstance(instance, nil)
 
 	fmt.Println("instance created, exts:", exts)
 
-	vk.InitInstance(instance)
+	vk.InitInstance(myrle.instance)
+
+	return &myrle, nil
+}
+
+func (m *Myrle) Destroy() {
+	vk.DestroyInstance(m.instance, nil)
+}
+
+func main() {
+	glfw.Init()
+	defer glfw.Terminate()
+	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
+	glfw.WindowHint(glfw.Resizable, glfw.False)
+	window, err := glfw.CreateWindow(640, 480, "GLFW: Abyssal Drifter", nil, nil)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer window.Destroy()
+
+	// +Set up Vulkan
+	myrle, err := NewMyrle("Abyssal Drifter")
+	if err != nil {
+		fmt.Println("Could not initialize MYRLE: ", err.Error())
+		return
+	}
+	defer myrle.Destroy()
 
 	// Enumerate GPUs
 	var gpuCount uint32
-	if result := vk.EnumeratePhysicalDevices(instance, &gpuCount, nil); result != vk.Success {
+	if result := vk.EnumeratePhysicalDevices(myrle.instance, &gpuCount, nil); result != vk.Success {
 		fmt.Println("err:", "count devices", result)
 		return
 	}
@@ -86,7 +119,7 @@ func main() {
 	}
 	fmt.Println("GPUS:", gpuCount)
 	gpus := make([]vk.PhysicalDevice, gpuCount)
-	if result := vk.EnumeratePhysicalDevices(instance, &gpuCount, gpus); result != vk.Success {
+	if result := vk.EnumeratePhysicalDevices(myrle.instance, &gpuCount, gpus); result != vk.Success {
 		fmt.Println("err:", "enumerate devices", result)
 		return
 	}
@@ -120,11 +153,11 @@ func main() {
 
 	// Surface
 	var surface vk.Surface
-	if result := vk.CreateWindowSurface(instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
+	if result := vk.CreateWindowSurface(myrle.instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
 		fmt.Println("err:", "create window surface", result)
 		return
 	}
-	defer vk.DestroySurface(instance, surface, nil)
+	defer vk.DestroySurface(myrle.instance, surface, nil)
 
 	// Check queue families
 	var queueFamilyCount uint32
