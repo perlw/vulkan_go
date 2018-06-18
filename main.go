@@ -41,12 +41,12 @@ func vkString(str string) string {
 
 const EngineName = "MYRLE"
 
-type Myrle struct {
+type Myr struct {
 	instance vk.Instance
 }
 
-func NewMyrle(appName string) (*Myrle, error) {
-	myrle := Myrle{}
+func NewMyr(appName string) (*Myr, error) {
+	myr := Myr{}
 
 	if err := vk.Init(); err != nil {
 		fmt.Println("err:", err.Error())
@@ -72,19 +72,19 @@ func NewMyrle(appName string) (*Myrle, error) {
 		PpEnabledExtensionNames: exts,
 	}
 
-	if result := vk.CreateInstance(&instanceInfo, nil, &myrle.instance); result != vk.Success {
+	if result := vk.CreateInstance(&instanceInfo, nil, &myr.instance); result != vk.Success {
 		fmt.Println("err:", "instance", result)
 		return nil, errors.New(fmt.Sprintf("could not create instance, vk=%d", result))
 	}
 
 	fmt.Println("instance created, exts:", exts)
 
-	vk.InitInstance(myrle.instance)
+	vk.InitInstance(myr.instance)
 
-	return &myrle, nil
+	return &myr, nil
 }
 
-func (m *Myrle) Destroy() {
+func (m *Myr) Destroy() {
 	vk.DestroyInstance(m.instance, nil)
 }
 
@@ -100,16 +100,16 @@ func main() {
 	defer window.Destroy()
 
 	// +Set up Vulkan
-	myrle, err := NewMyrle("Abyssal Drifter")
+	myr, err := NewMyr("Abyssal Drifter")
 	if err != nil {
 		fmt.Println("Could not initialize MYRLE: ", err.Error())
 		return
 	}
-	defer myrle.Destroy()
+	defer myr.Destroy()
 
 	// Enumerate GPUs
 	var gpuCount uint32
-	if result := vk.EnumeratePhysicalDevices(myrle.instance, &gpuCount, nil); result != vk.Success {
+	if result := vk.EnumeratePhysicalDevices(myr.instance, &gpuCount, nil); result != vk.Success {
 		fmt.Println("err:", "count devices", result)
 		return
 	}
@@ -119,7 +119,7 @@ func main() {
 	}
 	fmt.Println("GPUS:", gpuCount)
 	gpus := make([]vk.PhysicalDevice, gpuCount)
-	if result := vk.EnumeratePhysicalDevices(myrle.instance, &gpuCount, gpus); result != vk.Success {
+	if result := vk.EnumeratePhysicalDevices(myr.instance, &gpuCount, gpus); result != vk.Success {
 		fmt.Println("err:", "enumerate devices", result)
 		return
 	}
@@ -153,11 +153,11 @@ func main() {
 
 	// Surface
 	var surface vk.Surface
-	if result := vk.CreateWindowSurface(myrle.instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
+	if result := vk.CreateWindowSurface(myr.instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
 		fmt.Println("err:", "create window surface", result)
 		return
 	}
-	defer vk.DestroySurface(myrle.instance, surface, nil)
+	defer vk.DestroySurface(myr.instance, surface, nil)
 
 	// Check queue families
 	var queueFamilyCount uint32
