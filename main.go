@@ -39,10 +39,57 @@ func vkString(str string) string {
 	return str
 }
 
-const EngineName = "MYRLE"
+const EngineName = "MYR"
 
 type Myr struct {
 	instance vk.Instance
+
+	dbg vk.DebugReportCallback
+}
+
+func inStringSlice(slice []string, val string) bool {
+	for _, v := range slice {
+		if v == val {
+			return true
+		}
+	}
+	return false
+}
+
+func getAvailableInstanceExtensions() ([]string, error) {
+	var count uint32
+	if result := vk.EnumerateInstanceExtensionProperties("", &count, nil); result != vk.Success {
+		return nil, errors.New("could not count instance extensions")
+	}
+	extensions := make([]vk.ExtensionProperties, count)
+	if result := vk.EnumerateInstanceExtensionProperties("", &count, extensions); result != vk.Success {
+		return nil, errors.New("could not get instance extensions")
+	}
+
+	names := make([]string, count)
+	for t, ext := range extensions {
+		ext.Deref()
+		names[t] = vk.ToString(ext.ExtensionName[:])
+	}
+	return names, nil
+}
+
+func getAvailableInstanceLayers() ([]string, error) {
+	var count uint32
+	if result := vk.EnumerateInstanceLayerProperties(&count, nil); result != vk.Success {
+		return nil, errors.New("could not count instance layers")
+	}
+	layers := make([]vk.LayerProperties, count)
+	if result := vk.EnumerateInstanceLayerProperties(&count, layers); result != vk.Success {
+		return nil, errors.New("could not get instance layers")
+	}
+
+	names := make([]string, count)
+	for t, layer := range layers {
+		layer.Deref()
+		names[t] = vk.ToString(layer.LayerName[:])
+	}
+	return names, nil
 }
 
 func NewMyr(appName string) (*Myr, error) {
@@ -53,8 +100,29 @@ func NewMyr(appName string) (*Myr, error) {
 		return nil, errors.Wrap(err, "could not initialize vulkan")
 	}
 
+	debug := false
+	layers := []string{}
+	{
+		available, err := getAvailableInstanceLayers()
+		if err != nil {
+			return nil, errors.Wrap(err, "could not get layers")
+		}
+		if inStringSlice(available, "VK_LAYER_LUNARG_standard_validation") {
+			layers = append(layers, vkString("VK_LAYER_LUNARG_standard_validation"))
+		}
+	}
+
 	exts := vk.GetRequiredInstanceExtensions()
-	//exts = append(exts, "VK_EXT_debug_report")
+	{
+		available, err := getAvailableInstanceExtensions()
+		if err != nil {
+			return nil, errors.Wrap(err, "could not get instance extensions")
+		}
+		if inStringSlice(available, "VK_EXT_debug_report") {
+			debug = true
+			exts = append(exts, "VK_EXT_debug_report\x00")
+		}
+	}
 
 	instanceInfo := vk.InstanceCreateInfo{
 		SType: vk.StructureTypeInstanceCreateInfo,
@@ -66,8 +134,8 @@ func NewMyr(appName string) (*Myr, error) {
 			EngineVersion:      vk.MakeVersion(0, 0, 1),
 			ApiVersion:         vk.ApiVersion10,
 		},
-		EnabledLayerCount:       0,
-		PpEnabledLayerNames:     nil,
+		EnabledLayerCount:       uint32(len(layers)),
+		PpEnabledLayerNames:     layers,
 		EnabledExtensionCount:   uint32(len(exts)),
 		PpEnabledExtensionNames: exts,
 	}
@@ -77,15 +145,45 @@ func NewMyr(appName string) (*Myr, error) {
 		return nil, errors.New(fmt.Sprintf("could not create instance, vk=%d", result))
 	}
 
-	fmt.Println("instance created, exts:", exts)
+	fmt.Printf("instance created;\n\tlayers: %v\n\texts: %v\n", layers, exts)
 
 	vk.InitInstance(myr.instance)
+
+	// +Debug
+	if debug {
+		debugCreateInfo := vk.DebugReportCallbackCreateInfo{
+			SType:       vk.StructureTypeDebugReportCallbackCreateInfo,
+			Flags:       vk.DebugReportFlags(vk.DebugReportErrorBit | vk.DebugReportWarningBit),
+			PfnCallback: myr.debugReportCallback,
+		}
+		if result := vk.CreateDebugReportCallback(myr.instance, &debugCreateInfo, nil, &myr.dbg); result != vk.Success {
+			fmt.Println("err:", "creating debug report", result)
+		}
+	}
+	// -Debug
 
 	return &myr, nil
 }
 
 func (m *Myr) Destroy() {
+	if m.dbg != vk.NullDebugReportCallback {
+		vk.DestroyDebugReportCallback(m.instance, m.dbg, nil)
+	}
 	vk.DestroyInstance(m.instance, nil)
+}
+
+func (m *Myr) debugReportCallback(flags vk.DebugReportFlags, objectType vk.DebugReportObjectType,
+	object uint64, location uint, messageCode int32, pLayerPrefix string,
+	pMessage string, pUserData unsafe.Pointer) vk.Bool32 {
+	switch {
+	case flags&vk.DebugReportFlags(vk.DebugReportErrorBit) != 0:
+		fmt.Printf("[ERROR %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
+	case flags&vk.DebugReportFlags(vk.DebugReportWarningBit) != 0:
+		fmt.Printf("[WARN %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
+	default:
+		fmt.Printf("[WARN] unknown debug message %d (layer %s)", messageCode, pLayerPrefix)
+	}
+	return vk.Bool32(vk.False)
 }
 
 func main() {
