@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"os"
 	"runtime"
 	"unsafe"
 
@@ -13,7 +16,39 @@ import (
 
 func init() {
 	runtime.LockOSThread()
-	//runtime.GOMAXPROCS(2)
+}
+
+type Logger struct {
+	log   *log.Logger
+	warn  *log.Logger
+	err   *log.Logger
+	trace *log.Logger
+}
+
+func NewLogger(prefix string) Logger {
+	return Logger{
+		log:   log.New(os.Stdout, "["+prefix+"] ", log.Ldate|log.Ltime),
+		warn:  log.New(os.Stderr, "["+prefix+" WARN] ", log.Ldate|log.Ltime|log.Lshortfile),
+		err:   log.New(os.Stderr, "["+prefix+" ERR] ", log.Ldate|log.Ltime|log.Llongfile),
+		trace: log.New(os.Stderr, "["+prefix+" ERR] ", log.Ldate|log.Ltime|log.Llongfile),
+	}
+}
+
+func (l Logger) Log(format string, a ...interface{}) {
+	l.log.Printf(format, a...)
+}
+func (l Logger) Warn(format string, a ...interface{}) {
+	l.warn.Printf(format, a...)
+}
+func (l Logger) Err(err error, format string, a ...interface{}) {
+	if err != nil {
+		l.err.Printf(format+","+err.Error(), a...)
+	} else {
+		l.err.Printf(format, a...)
+	}
+}
+func (l Logger) Trace(format string, a ...interface{}) {
+	l.trace.Printf(format, a...)
 }
 
 // +Byte slice to uint32 slice
@@ -40,12 +75,6 @@ func vkString(str string) string {
 }
 
 const EngineName = "MYR"
-
-type Myr struct {
-	instance vk.Instance
-
-	dbg vk.DebugReportCallback
-}
 
 func inStringSlice(slice []string, val string) bool {
 	for _, v := range slice {
@@ -92,11 +121,24 @@ func getAvailableInstanceLayers() ([]string, error) {
 	return names, nil
 }
 
+type myrInternal struct {
+	instance vk.Instance
+	dbg      vk.DebugReportCallback
+}
+
+type Myr struct {
+	log Logger
+
+	internal *myrInternal
+}
+
 func NewMyr(appName string) (*Myr, error) {
-	myr := Myr{}
+	myr := Myr{
+		log:      NewLogger(EngineName),
+		internal: &myrInternal{},
+	}
 
 	if err := vk.Init(); err != nil {
-		fmt.Println("err:", err.Error())
 		return nil, errors.Wrap(err, "could not initialize vulkan")
 	}
 
@@ -120,7 +162,7 @@ func NewMyr(appName string) (*Myr, error) {
 		}
 		if inStringSlice(available, "VK_EXT_debug_report") {
 			debug = true
-			exts = append(exts, "VK_EXT_debug_report\x00")
+			exts = append(exts, vkString("VK_EXT_debug_report"))
 		}
 	}
 
@@ -140,14 +182,13 @@ func NewMyr(appName string) (*Myr, error) {
 		PpEnabledExtensionNames: exts,
 	}
 
-	if result := vk.CreateInstance(&instanceInfo, nil, &myr.instance); result != vk.Success {
-		fmt.Println("err:", "instance", result)
-		return nil, errors.New(fmt.Sprintf("could not create instance, vk=%d", result))
+	if result := vk.CreateInstance(&instanceInfo, nil, &myr.internal.instance); result != vk.Success {
+		return nil, errors.Wrap(vk.Error(result), "could not create instance")
 	}
 
-	fmt.Printf("instance created;\n\tlayers: %v\n\texts: %v\n", layers, exts)
+	myr.log.Log("instance created;\n\tlayers: %v\n\texts: %v\n", layers, exts)
 
-	vk.InitInstance(myr.instance)
+	vk.InitInstance(myr.internal.instance)
 
 	// +Debug
 	if debug {
@@ -156,8 +197,8 @@ func NewMyr(appName string) (*Myr, error) {
 			Flags:       vk.DebugReportFlags(vk.DebugReportErrorBit | vk.DebugReportWarningBit),
 			PfnCallback: myr.debugReportCallback,
 		}
-		if result := vk.CreateDebugReportCallback(myr.instance, &debugCreateInfo, nil, &myr.dbg); result != vk.Success {
-			fmt.Println("err:", "creating debug report", result)
+		if result := vk.CreateDebugReportCallback(myr.internal.instance, &debugCreateInfo, nil, &myr.internal.dbg); result != vk.Success {
+			myr.log.Err(vk.Error(result), "creating debug report")
 		}
 	}
 	// -Debug
@@ -166,10 +207,10 @@ func NewMyr(appName string) (*Myr, error) {
 }
 
 func (m *Myr) Destroy() {
-	if m.dbg != vk.NullDebugReportCallback {
-		vk.DestroyDebugReportCallback(m.instance, m.dbg, nil)
+	if m.internal.dbg != vk.NullDebugReportCallback {
+		vk.DestroyDebugReportCallback(m.internal.instance, m.internal.dbg, nil)
 	}
-	vk.DestroyInstance(m.instance, nil)
+	vk.DestroyInstance(m.internal.instance, nil)
 }
 
 func (m *Myr) debugReportCallback(flags vk.DebugReportFlags, objectType vk.DebugReportObjectType,
@@ -177,123 +218,218 @@ func (m *Myr) debugReportCallback(flags vk.DebugReportFlags, objectType vk.Debug
 	pMessage string, pUserData unsafe.Pointer) vk.Bool32 {
 	switch {
 	case flags&vk.DebugReportFlags(vk.DebugReportErrorBit) != 0:
-		fmt.Printf("[ERROR %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
+		m.log.Log("[VK DBG ERR %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
 	case flags&vk.DebugReportFlags(vk.DebugReportWarningBit) != 0:
-		fmt.Printf("[WARN %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
+		m.log.Log("[VK DBG WARN %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
 	default:
-		fmt.Printf("[WARN] unknown debug message %d (layer %s)", messageCode, pLayerPrefix)
+		m.log.Log("[VK DBG UNK] unknown debug message %d (layer %s)", messageCode, pLayerPrefix)
 	}
 	return vk.Bool32(vk.False)
 }
 
+func (m *Myr) EnumerateGPUs() ([]GPU, error) {
+	var gpuCount uint32
+	if result := vk.EnumeratePhysicalDevices(m.internal.instance, &gpuCount, nil); result != vk.Success {
+		return nil, errors.Wrap(vk.Error(result), "could not count gpus")
+	}
+	if gpuCount == 0 {
+		return nil, errors.New("no valid gpus")
+	}
+	vkGPUs := make([]vk.PhysicalDevice, gpuCount)
+	if result := vk.EnumeratePhysicalDevices(m.internal.instance, &gpuCount, vkGPUs); result != vk.Success {
+		return nil, errors.Wrap(vk.Error(result), "could not enumerate gpus")
+	}
+
+	gpus := make([]GPU, gpuCount)
+	for t, gpu := range vkGPUs {
+		gpus[t] = createGPU(gpu)
+	}
+
+	return gpus, nil
+}
+
+type GPUType uint32
+
+const (
+	GPUTypeOther      GPUType = GPUType(vk.PhysicalDeviceTypeOther)
+	GPUTypeIntegrated         = GPUType(vk.PhysicalDeviceTypeIntegratedGpu)
+	GPUTypeDiscrete           = GPUType(vk.PhysicalDeviceTypeDiscreteGpu)
+	GPUTypeVirtual            = GPUType(vk.PhysicalDeviceTypeVirtualGpu)
+	GPUTypeCPU                = GPUType(vk.PhysicalDeviceTypeCpu)
+)
+
+func (g GPUType) String() string {
+	switch g {
+	case GPUTypeOther:
+		return "Other"
+	case GPUTypeIntegrated:
+		return "Integrated"
+	case GPUTypeDiscrete:
+		return "Discrete"
+	case GPUTypeVirtual:
+		return "Virtual"
+	case GPUTypeCPU:
+		return "CPU"
+	default:
+		panic("unreachable")
+	}
+}
+
+type gpuInternal struct {
+	gpu      vk.PhysicalDevice
+	props    vk.PhysicalDeviceProperties
+	memProps vk.PhysicalDeviceMemoryProperties
+	features vk.PhysicalDeviceFeatures
+}
+
+type GPU struct {
+	Name string
+	Type GPUType
+
+	internal *gpuInternal
+}
+
+func createGPU(vkGPU vk.PhysicalDevice) GPU {
+	gpu := GPU{
+		internal: &gpuInternal{
+			gpu: vkGPU,
+		},
+	}
+
+	vk.GetPhysicalDeviceProperties(gpu.internal.gpu, &gpu.internal.props)
+	gpu.internal.props.Deref()
+	gpu.internal.props.Limits.Deref()
+	gpu.internal.props.SparseProperties.Deref()
+
+	vk.GetPhysicalDeviceMemoryProperties(gpu.internal.gpu, &gpu.internal.memProps)
+	gpu.internal.memProps.Deref()
+
+	vk.GetPhysicalDeviceFeatures(gpu.internal.gpu, &gpu.internal.features)
+	gpu.internal.features.Deref()
+
+	gpu.Name = string(gpu.internal.props.DeviceName[:])
+	gpu.Type = GPUType(gpu.internal.props.DeviceType)
+
+	return gpu
+}
+
+func (g GPU) Debug() string {
+	buffer := bytes.Buffer{}
+
+	buffer.WriteString(fmt.Sprintln("Device Name:", g.Name))
+	buffer.WriteString(fmt.Sprintln("Device Type:", g.Type))
+	buffer.WriteString("## Backend\n")
+	buffer.WriteString(fmt.Sprintf("Vulkan v%d.%d.%d\n",
+		(g.internal.props.ApiVersion>>22)&0x3ff,
+		(g.internal.props.ApiVersion>>12)&0x3ff,
+		g.internal.props.ApiVersion&0xfff,
+	))
+	buffer.WriteString(fmt.Sprintf("Driver v%d.%d.%d\n",
+		(g.internal.props.DriverVersion>>22)&0x3ff,
+		(g.internal.props.DriverVersion>>12)&0x3ff,
+		g.internal.props.DriverVersion&0xfff,
+	))
+	buffer.WriteString(fmt.Sprintln("Max Image Dimension:", g.internal.props.Limits.MaxImageDimension2D))
+	buffer.WriteString(fmt.Sprintln("Max Viewports:", g.internal.props.Limits.MaxViewports))
+	buffer.WriteString(fmt.Sprintln("Max Viewport Dimensions:", g.internal.props.Limits.MaxViewportDimensions[0], g.internal.props.Limits.MaxViewportDimensions[1]))
+
+	return buffer.String()
+}
+
+func (g GPU) Match(resWidth, resHeight uint32) bool {
+	return (g.internal.props.Limits.MaxViewportDimensions[0] >= resWidth && g.internal.props.Limits.MaxViewportDimensions[1] >= resHeight)
+}
+
+const APP_NAME = "Abyssal Drifter"
+const RES_WIDTH = 640
+const RES_HEIGHT = 480
+
 func main() {
+	log := NewLogger(APP_NAME)
+
 	glfw.Init()
 	defer glfw.Terminate()
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
 	glfw.WindowHint(glfw.Resizable, glfw.False)
-	window, err := glfw.CreateWindow(640, 480, "GLFW: Abyssal Drifter", nil, nil)
+	window, err := glfw.CreateWindow(RES_WIDTH, RES_HEIGHT, APP_NAME, nil, nil)
 	if err != nil {
 		panic(err.Error())
 	}
 	defer window.Destroy()
 
 	// +Set up Vulkan
-	myr, err := NewMyr("Abyssal Drifter")
+	myr, err := NewMyr(APP_NAME)
 	if err != nil {
-		fmt.Println("Could not initialize MYRLE: ", err.Error())
+		panic(err.Error())
 		return
 	}
 	defer myr.Destroy()
 
-	// Enumerate GPUs
-	var gpuCount uint32
-	if result := vk.EnumeratePhysicalDevices(myr.instance, &gpuCount, nil); result != vk.Success {
-		fmt.Println("err:", "count devices", result)
+	gpus, err := myr.EnumerateGPUs()
+	if err != nil {
+		log.Err(err, "enumerating GPUs")
 		return
 	}
-	if gpuCount == 0 {
-		fmt.Println("err: no gpus")
+	var chosenGPU *GPU
+	for t, gpu := range gpus {
+		log.Log("# GPU %d\n%s", t, gpu.Debug())
+		log.Log(gpu.Debug())
+		if gpu.Match(RES_WIDTH, RES_HEIGHT) {
+			chosenGPU = &gpus[t]
+		}
+	}
+	if chosenGPU == nil {
+		log.Err(nil, "no matching GPU")
 		return
 	}
-	fmt.Println("GPUS:", gpuCount)
-	gpus := make([]vk.PhysicalDevice, gpuCount)
-	if result := vk.EnumeratePhysicalDevices(myr.instance, &gpuCount, gpus); result != vk.Success {
-		fmt.Println("err:", "enumerate devices", result)
-		return
-	}
-	gpu := gpus[0]
-
-	// Get properties
-	var gpuProperties vk.PhysicalDeviceProperties
-	var memoryProperties vk.PhysicalDeviceMemoryProperties
-	var gpuFeatures vk.PhysicalDeviceFeatures
-	vk.GetPhysicalDeviceProperties(gpu, &gpuProperties)
-	gpuProperties.Deref()
-	vk.GetPhysicalDeviceMemoryProperties(gpu, &memoryProperties)
-	memoryProperties.Deref()
-	vk.GetPhysicalDeviceFeatures(gpu, &gpuFeatures)
-	gpuFeatures.Deref()
-
-	fmt.Printf("Vulkan v%d.%d.%d\n",
-		(gpuProperties.ApiVersion>>22)&0x3ff,
-		(gpuProperties.ApiVersion>>12)&0x3ff,
-		gpuProperties.ApiVersion&0xfff,
-	)
-	fmt.Println("Device Name:", string(gpuProperties.DeviceName[:]))
-	fmt.Println("Device Type:", gpuProperties.DeviceType)
-	fmt.Printf("Driver v%d.%d.%d\n",
-		(gpuProperties.DriverVersion>>22)&0x3ff,
-		(gpuProperties.DriverVersion>>12)&0x3ff,
-		gpuProperties.DriverVersion&0xfff,
-	)
-	gpuProperties.Limits.Deref()
-	fmt.Println("Max Image Dimension:", gpuProperties.Limits.MaxImageDimension2D)
+	gpuHandle := chosenGPU.internal.gpu
+	log.Log("Picked: %s\n", chosenGPU.Name)
 
 	// Surface
 	var surface vk.Surface
-	if result := vk.CreateWindowSurface(myr.instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
-		fmt.Println("err:", "create window surface", result)
+	if result := vk.CreateWindowSurface(myr.internal.instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
+		log.Err(vk.Error(result), "create window surface")
 		return
 	}
-	defer vk.DestroySurface(myr.instance, surface, nil)
+	defer vk.DestroySurface(myr.internal.instance, surface, nil)
 
 	// Check queue families
 	var queueFamilyCount uint32
-	vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, nil)
+	vk.GetPhysicalDeviceQueueFamilyProperties(gpuHandle, &queueFamilyCount, nil)
 	if queueFamilyCount == 0 {
-		fmt.Println("err: no queue families")
+		log.Err(nil, "no queue families")
 		return
 	}
-	fmt.Println("Queue Families:", queueFamilyCount)
+
+	log.Log("Queue Families: %d", queueFamilyCount)
 	queueFamilies := make([]vk.QueueFamilyProperties, queueFamilyCount)
-	vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, queueFamilies)
+	vk.GetPhysicalDeviceQueueFamilyProperties(gpuHandle, &queueFamilyCount, queueFamilies)
 	var graphicsFamilyIndex uint32
 	var presentFamilyIndex uint32
 	for i, family := range queueFamilies {
 		family.Deref()
 
 		var presentSupport vk.Bool32
-		vk.GetPhysicalDeviceSurfaceSupport(gpu, uint32(i), surface, &presentSupport)
+		vk.GetPhysicalDeviceSurfaceSupport(gpuHandle, uint32(i), surface, &presentSupport)
 
 		if family.QueueCount > 0 && family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
 			graphicsFamilyIndex = uint32(i)
 			if presentSupport > 0 {
-				fmt.Println("Yes! Present support")
 				presentFamilyIndex = uint32(i)
 			}
 		}
 		if family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
-			fmt.Println("family:", i, "graphics")
+			log.Log("family: %d %s", i, "graphics")
 		}
 		if family.QueueFlags&vk.QueueFlags(vk.QueueComputeBit) != 0 {
-			fmt.Println("family:", i, "compute")
+			log.Log("family: %d %s", i, "compute")
 		}
 		if family.QueueFlags&vk.QueueFlags(vk.QueueTransferBit) != 0 {
-			fmt.Println("family:", i, "transfer")
+			log.Log("family: %d %s", i, "transfer")
 		}
 	}
-	fmt.Println("Graphics family index:", graphicsFamilyIndex)
-	fmt.Println("Present family index:", presentFamilyIndex)
+	log.Log("Graphics family index: %d", graphicsFamilyIndex)
+	log.Log("Present family index: %d", presentFamilyIndex)
 
 	// Create device
 	queuePriorities := []float32{1.0}
@@ -311,10 +447,10 @@ func main() {
 		EnabledLayerCount:       0,
 		PpEnabledLayerNames:     nil,
 		EnabledExtensionCount:   1,
-		PpEnabledExtensionNames: []string{"VK_KHR_swapchain\x00"},
+		PpEnabledExtensionNames: []string{vkString("VK_KHR_swapchain")},
 	}
 	var device vk.Device
-	if result := vk.CreateDevice(gpu, &deviceCreateInfo, nil, &device); result != vk.Success {
+	if result := vk.CreateDevice(gpuHandle, &deviceCreateInfo, nil, &device); result != vk.Success {
 		fmt.Println("err:", "create device", result)
 		return
 	}
@@ -338,11 +474,11 @@ func main() {
 		SType: vk.StructureTypeSemaphoreCreateInfo,
 	}
 	if result := vk.CreateSemaphore(device, &semaphoreCreateInfo, nil, &imageAvailableSemaphore); result != vk.Success {
-		fmt.Println("err:", "create semaphore, image", result)
+		log.Err(vk.Error(result), "create semaphore, image")
 		return
 	}
 	if result := vk.CreateSemaphore(device, &semaphoreCreateInfo, nil, &renderingFinishedSemaphore); result != vk.Success {
-		fmt.Println("err:", "create semaphore, rendering", result)
+		log.Err(vk.Error(result), "create semaphore, rendering")
 		return
 	}
 	defer vk.DestroySemaphore(device, imageAvailableSemaphore, nil)
@@ -350,21 +486,21 @@ func main() {
 
 	// Swap chain
 	var surfaceCapabilities vk.SurfaceCapabilities
-	if result := vk.GetPhysicalDeviceSurfaceCapabilities(gpu, surface, &surfaceCapabilities); result != vk.Success {
-		fmt.Println("err:", "get surface caps", result)
+	if result := vk.GetPhysicalDeviceSurfaceCapabilities(gpuHandle, surface, &surfaceCapabilities); result != vk.Success {
+		log.Err(vk.Error(result), "get surface caps")
 		return
 	}
 	surfaceCapabilities.Deref()
 	surfaceCapabilities.MinImageExtent.Deref()
 	surfaceCapabilities.MaxImageExtent.Deref()
 
-	fmt.Println("surface min:", surfaceCapabilities.MinImageExtent.Width, surfaceCapabilities.MinImageExtent.Height)
-	fmt.Println("surface max:", surfaceCapabilities.MaxImageExtent.Width, surfaceCapabilities.MaxImageExtent.Height)
+	log.Log("surface min: %dx%d", surfaceCapabilities.MinImageExtent.Width, surfaceCapabilities.MinImageExtent.Height)
+	log.Log("surface max: %dx%d", surfaceCapabilities.MaxImageExtent.Width, surfaceCapabilities.MaxImageExtent.Height)
 
 	var formatCount uint32
-	vk.GetPhysicalDeviceSurfaceFormats(gpu, surface, &formatCount, nil)
+	vk.GetPhysicalDeviceSurfaceFormats(gpuHandle, surface, &formatCount, nil)
 	formats := make([]vk.SurfaceFormat, formatCount)
-	vk.GetPhysicalDeviceSurfaceFormats(gpu, surface, &formatCount, formats)
+	vk.GetPhysicalDeviceSurfaceFormats(gpuHandle, surface, &formatCount, formats)
 	format := formats[0]
 	format.Deref()
 
@@ -377,8 +513,8 @@ func main() {
 		ImageFormat:     format.Format,
 		ImageColorSpace: format.ColorSpace,
 		ImageExtent: vk.Extent2D{
-			Width:  640,
-			Height: 480,
+			Width:  RES_WIDTH,
+			Height: RES_HEIGHT,
 		},
 		ImageArrayLayers:      1,
 		ImageUsage:            vk.ImageUsageFlags(vk.ImageUsageColorAttachmentBit | vk.ImageUsageTransferDstBit),
@@ -391,7 +527,7 @@ func main() {
 		OldSwapchain:          oldSwapchain,
 	}
 	if result := vk.CreateSwapchain(device, &swapChainCreateInfo, nil, &swapchain); result != vk.Success {
-		fmt.Println("err:", "create swapchain", result)
+		log.Err(vk.Error(result), "create swapchain")
 		return
 	}
 	if oldSwapchain != vk.NullSwapchain {
@@ -436,7 +572,7 @@ func main() {
 	}
 	var renderPass vk.RenderPass
 	if result := vk.CreateRenderPass(device, &renderPassCreateInfo, nil, &renderPass); result != vk.Success {
-		fmt.Println("err:", "create render pass", result)
+		log.Err(vk.Error(result), "create render pass")
 		return
 	}
 	defer vk.DestroyRenderPass(device, renderPass, nil)
@@ -444,20 +580,20 @@ func main() {
 	// Creating framebuffers
 	var imageCount uint32
 	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, nil); result != vk.Success {
-		fmt.Println("err:", "get swapchain image count", result)
+		log.Err(vk.Error(result), "get swapchain image count")
 		return
 	}
-	fmt.Println("Swapchain image count:", imageCount)
+	log.Log("Swapchain image count: %d", imageCount)
 
 	swapChainImages := make([]vk.Image, imageCount)
 	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, swapChainImages); result != vk.Success {
-		fmt.Println("err:", "get swapchain images", result)
+		log.Err(vk.Error(result), "get swapchain images")
 		return
 	}
 
 	// TODO: Use single framebuffer, render to texture, then make swapchain copy from texture
-	framebufferWidth := uint32(300)
-	framebufferHeight := uint32(300)
+	framebufferWidth := uint32(RES_WIDTH)
+	framebufferHeight := uint32(RES_HEIGHT)
 	framebuffers := make([]vk.Framebuffer, len(swapChainImages))
 	framebufferViews := make([]vk.ImageView, len(swapChainImages))
 	for i, img := range swapChainImages {
@@ -481,7 +617,7 @@ func main() {
 			},
 		}
 		if result := vk.CreateImageView(device, &imageViewCreateInfo, nil, &framebufferViews[i]); result != vk.Success {
-			fmt.Println("err:", "create image view", i, ":", result)
+			log.Err(vk.Error(result), "create image view")
 			return
 		}
 
@@ -498,7 +634,7 @@ func main() {
 			Layers: 1,
 		}
 		if result := vk.CreateFramebuffer(device, &framebufferCreateInfo, nil, &framebuffers[i]); result != vk.Success {
-			fmt.Println("err:", "create framebuffer", result)
+			log.Err(vk.Error(result), "create framebuffer")
 			return
 		}
 	}
@@ -516,7 +652,7 @@ func main() {
 	{
 		shaderCode, err := ioutil.ReadFile("tri.vert.spv")
 		if err != nil {
-			fmt.Println("err:", "read vertex code", err.Error())
+			log.Err(err, "read vertex code")
 			return
 		}
 
@@ -526,7 +662,7 @@ func main() {
 			PCode:    sliceUint32(shaderCode),
 		}
 		if result := vk.CreateShaderModule(device, &shaderModuleCreateInfo, nil, &vertShaderModule); result != vk.Success {
-			fmt.Println("err:", "create framebuffer", result)
+			log.Err(vk.Error(result), "create vertex shader")
 			return
 		}
 	}
@@ -534,7 +670,7 @@ func main() {
 	{
 		shaderCode, err := ioutil.ReadFile("tri.frag.spv")
 		if err != nil {
-			fmt.Println("err:", "read frag code", err.Error())
+			log.Err(err, "read frag code")
 			return
 		}
 
@@ -544,7 +680,7 @@ func main() {
 			PCode:    sliceUint32(shaderCode),
 		}
 		if result := vk.CreateShaderModule(device, &shaderModuleCreateInfo, nil, &fragShaderModule); result != vk.Success {
-			fmt.Println("err:", "create framebuffer", result)
+			log.Err(vk.Error(result), "create frag shader")
 			return
 		}
 	}
@@ -558,13 +694,13 @@ func main() {
 			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
 			Stage:  vk.ShaderStageVertexBit,
 			Module: vertShaderModule,
-			PName:  "main\x00",
+			PName:  vkString("main"),
 		},
 		{
 			SType:  vk.StructureTypePipelineShaderStageCreateInfo,
 			Stage:  vk.ShaderStageFragmentBit,
 			Module: fragShaderModule,
-			PName:  "main\x00",
+			PName:  vkString("main"),
 		},
 	}
 
@@ -669,7 +805,7 @@ func main() {
 	}
 	var pipelineLayout vk.PipelineLayout
 	if result := vk.CreatePipelineLayout(device, &layoutCreateInfo, nil, &pipelineLayout); result != vk.Success {
-		fmt.Println("err:", "create pipeline layout", result)
+		log.Err(vk.Error(result), "create pipeline layout")
 		return
 	}
 	defer vk.DestroyPipelineLayout(device, pipelineLayout, nil)
@@ -693,7 +829,7 @@ func main() {
 	}
 	graphicsPipeline := make([]vk.Pipeline, 1)
 	if result := vk.CreateGraphicsPipelines(device, nil, 1, pipelineCreateInfo, nil, graphicsPipeline); result != vk.Success {
-		fmt.Println("err:", "create pipeline layout", result)
+		log.Err(vk.Error(result), "create pipeline layout")
 		return
 	}
 	defer vk.DestroyPipeline(device, graphicsPipeline[0], nil)
@@ -706,7 +842,7 @@ func main() {
 		QueueFamilyIndex: graphicsFamilyIndex,
 	}
 	if result := vk.CreateCommandPool(device, &graphicsCmdPoolCreateInfo, nil, &graphicsQueueCmdPool); result != vk.Success {
-		fmt.Println("err:", "create graphics command pool", result)
+		log.Err(vk.Error(result), "create graphics command pool")
 		return
 	}
 	defer vk.DestroyCommandPool(device, graphicsQueueCmdPool, nil)
@@ -720,7 +856,7 @@ func main() {
 		CommandBufferCount: imageCount,
 	}
 	if result := vk.AllocateCommandBuffers(device, &graphicsCmdBufferAllocateInfo, graphicsQueueCmdBuffers); result != vk.Success {
-		fmt.Println("err:", "allocate graphics command buffers", result)
+		log.Err(vk.Error(result), "allocate graphics command buffers")
 		return
 	}
 	defer vk.FreeCommandBuffers(device, graphicsQueueCmdPool, imageCount, graphicsQueueCmdBuffers)
@@ -789,7 +925,7 @@ func main() {
 		vk.CmdPipelineBarrier(graphicsQueueCmdBuffers[i], vk.PipelineStageFlags(vk.PipelineStageColorAttachmentOutputBit), vk.PipelineStageFlags(vk.PipelineStageBottomOfPipeBit), 0, 0, nil, 0, nil, 1, []vk.ImageMemoryBarrier{barrierFromDrawToPresent})
 
 		if result := vk.EndCommandBuffer(graphicsQueueCmdBuffers[i]); result != vk.Success {
-			fmt.Println("err:", "record graphics command buffer", i, ":", result)
+			log.Err(vk.Error(result), "record graphics command buffer")
 			return
 		}
 	}
@@ -805,8 +941,9 @@ func main() {
 		case vk.Suboptimal:
 		case vk.ErrorOutOfDate:
 			fmt.Println("aquire outdate")
+			log.Log("aquire outdate")
 		default:
-			fmt.Println("err:", "aquire image", result)
+			log.Err(vk.Error(result), "aquire image")
 			return
 		}
 
@@ -831,7 +968,7 @@ func main() {
 		if result := vk.QueueSubmit(graphicsQueue, 1, []vk.SubmitInfo{
 			submitInfo,
 		}, vk.NullFence); result != vk.Success {
-			fmt.Println("err:", "queue submit", result)
+			log.Err(vk.Error(result), "queue submit")
 			return
 		}
 
@@ -856,9 +993,9 @@ func main() {
 		case vk.Suboptimal:
 			fallthrough
 		case vk.ErrorOutOfDate:
-			fmt.Println("present outdate")
+			log.Log("present outdate")
 		default:
-			fmt.Println("err:", "image present", result)
+			log.Err(vk.Error(result), "image present")
 			return
 		}
 
@@ -866,5 +1003,5 @@ func main() {
 	}
 
 	vk.DeviceWaitIdle(device)
-	fmt.Println("fin")
+	log.Log("fin")
 }
