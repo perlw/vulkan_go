@@ -53,83 +53,20 @@ func main() {
 	}
 	defer framework.Destroy()
 
+	// NOTE: Only for dev
 	gpuHandle := framework.BackendGPU().Handle()
 	surfaceHandle := framework.BackendSurface().Handle()
+	deviceHandle := framework.BackendDevice().Handle()
 
-	// +Set up Vulkan
-	// Check queue families
-	var queueFamilyCount uint32
-	vk.GetPhysicalDeviceQueueFamilyProperties(gpuHandle, &queueFamilyCount, nil)
-	if queueFamilyCount == 0 {
-		log.Err(nil, "no queue families")
-		return
-	}
-
-	log.Log("Queue Families: %d", queueFamilyCount)
-	queueFamilies := make([]vk.QueueFamilyProperties, queueFamilyCount)
-	vk.GetPhysicalDeviceQueueFamilyProperties(gpuHandle, &queueFamilyCount, queueFamilies)
-	var graphicsFamilyIndex uint32
-	var presentFamilyIndex uint32
-	for i, family := range queueFamilies {
-		family.Deref()
-
-		var presentSupport vk.Bool32
-		vk.GetPhysicalDeviceSurfaceSupport(gpuHandle, uint32(i), surfaceHandle, &presentSupport)
-
-		if family.QueueCount > 0 && family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
-			graphicsFamilyIndex = uint32(i)
-			if presentSupport > 0 {
-				presentFamilyIndex = uint32(i)
-			}
-		}
-		if family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
-			log.Log("family: %d %s", i, "graphics")
-		}
-		if family.QueueFlags&vk.QueueFlags(vk.QueueComputeBit) != 0 {
-			log.Log("family: %d %s", i, "compute")
-		}
-		if family.QueueFlags&vk.QueueFlags(vk.QueueTransferBit) != 0 {
-			log.Log("family: %d %s", i, "transfer")
-		}
-	}
-	log.Log("Graphics family index: %d", graphicsFamilyIndex)
-	log.Log("Present family index: %d", presentFamilyIndex)
-
-	// Create device
-	queuePriorities := []float32{1.0}
-	deviceCreateInfo := vk.DeviceCreateInfo{
-		SType:                vk.StructureTypeDeviceCreateInfo,
-		QueueCreateInfoCount: 1,
-		PQueueCreateInfos: []vk.DeviceQueueCreateInfo{
-			{
-				SType:            vk.StructureTypeDeviceQueueCreateInfo,
-				QueueFamilyIndex: graphicsFamilyIndex,
-				QueueCount:       uint32(len(queuePriorities)),
-				PQueuePriorities: queuePriorities,
-			},
-		},
-		EnabledLayerCount:       0,
-		PpEnabledLayerNames:     nil,
-		EnabledExtensionCount:   1,
-		PpEnabledExtensionNames: []string{vkString("VK_KHR_swapchain")},
-	}
-	var device vk.Device
-	if result := vk.CreateDevice(gpuHandle, &deviceCreateInfo, nil, &device); result != vk.Success {
-		fmt.Println("err:", "create device", result)
-		return
-	}
-	defer (func() {
-		vk.DeviceWaitIdle(device)
-		vk.DestroyDevice(device, nil)
-	})()
-	// -Set up Vulkan
+	graphicsFamilyIndex := uint32(0)
+	presentFamilyIndex := uint32(0)
 
 	// +Prepare rendering
 	// Get command queue
 	var graphicsQueue vk.Queue
 	var presentQueue vk.Queue
-	vk.GetDeviceQueue(device, graphicsFamilyIndex, 0, &graphicsQueue)
-	vk.GetDeviceQueue(device, presentFamilyIndex, 0, &presentQueue)
+	vk.GetDeviceQueue(deviceHandle, graphicsFamilyIndex, 0, &graphicsQueue)
+	vk.GetDeviceQueue(deviceHandle, presentFamilyIndex, 0, &presentQueue)
 
 	// Semaphores
 	var imageAvailableSemaphore vk.Semaphore
@@ -137,16 +74,16 @@ func main() {
 	semaphoreCreateInfo := vk.SemaphoreCreateInfo{
 		SType: vk.StructureTypeSemaphoreCreateInfo,
 	}
-	if result := vk.CreateSemaphore(device, &semaphoreCreateInfo, nil, &imageAvailableSemaphore); result != vk.Success {
+	if result := vk.CreateSemaphore(deviceHandle, &semaphoreCreateInfo, nil, &imageAvailableSemaphore); result != vk.Success {
 		log.Err(vk.Error(result), "create semaphore, image")
 		return
 	}
-	if result := vk.CreateSemaphore(device, &semaphoreCreateInfo, nil, &renderingFinishedSemaphore); result != vk.Success {
+	if result := vk.CreateSemaphore(deviceHandle, &semaphoreCreateInfo, nil, &renderingFinishedSemaphore); result != vk.Success {
 		log.Err(vk.Error(result), "create semaphore, rendering")
 		return
 	}
-	defer vk.DestroySemaphore(device, imageAvailableSemaphore, nil)
-	defer vk.DestroySemaphore(device, renderingFinishedSemaphore, nil)
+	defer vk.DestroySemaphore(deviceHandle, imageAvailableSemaphore, nil)
+	defer vk.DestroySemaphore(deviceHandle, renderingFinishedSemaphore, nil)
 
 	// Swap chain
 	var surfaceCapabilities vk.SurfaceCapabilities
@@ -190,14 +127,14 @@ func main() {
 		Clipped:               vk.True,
 		OldSwapchain:          oldSwapchain,
 	}
-	if result := vk.CreateSwapchain(device, &swapChainCreateInfo, nil, &swapchain); result != vk.Success {
+	if result := vk.CreateSwapchain(deviceHandle, &swapChainCreateInfo, nil, &swapchain); result != vk.Success {
 		log.Err(vk.Error(result), "create swapchain")
 		return
 	}
 	if oldSwapchain != vk.NullSwapchain {
-		vk.DestroySwapchain(device, oldSwapchain, nil)
+		vk.DestroySwapchain(deviceHandle, oldSwapchain, nil)
 	}
-	defer vk.DestroySwapchain(device, swapchain, nil)
+	defer vk.DestroySwapchain(deviceHandle, swapchain, nil)
 	// -Prepare rendering
 
 	// +Set up render pass
@@ -235,22 +172,22 @@ func main() {
 		PSubpasses:      subpassDescriptions,
 	}
 	var renderPass vk.RenderPass
-	if result := vk.CreateRenderPass(device, &renderPassCreateInfo, nil, &renderPass); result != vk.Success {
+	if result := vk.CreateRenderPass(deviceHandle, &renderPassCreateInfo, nil, &renderPass); result != vk.Success {
 		log.Err(vk.Error(result), "create render pass")
 		return
 	}
-	defer vk.DestroyRenderPass(device, renderPass, nil)
+	defer vk.DestroyRenderPass(deviceHandle, renderPass, nil)
 
 	// Creating framebuffers
 	var imageCount uint32
-	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, nil); result != vk.Success {
+	if result := vk.GetSwapchainImages(deviceHandle, swapchain, &imageCount, nil); result != vk.Success {
 		log.Err(vk.Error(result), "get swapchain image count")
 		return
 	}
 	log.Log("Swapchain image count: %d", imageCount)
 
 	swapChainImages := make([]vk.Image, imageCount)
-	if result := vk.GetSwapchainImages(device, swapchain, &imageCount, swapChainImages); result != vk.Success {
+	if result := vk.GetSwapchainImages(deviceHandle, swapchain, &imageCount, swapChainImages); result != vk.Success {
 		log.Err(vk.Error(result), "get swapchain images")
 		return
 	}
@@ -280,7 +217,7 @@ func main() {
 				LayerCount:     1,
 			},
 		}
-		if result := vk.CreateImageView(device, &imageViewCreateInfo, nil, &framebufferViews[i]); result != vk.Success {
+		if result := vk.CreateImageView(deviceHandle, &imageViewCreateInfo, nil, &framebufferViews[i]); result != vk.Success {
 			log.Err(vk.Error(result), "create image view")
 			return
 		}
@@ -297,7 +234,7 @@ func main() {
 			Height: framebufferHeight,
 			Layers: 1,
 		}
-		if result := vk.CreateFramebuffer(device, &framebufferCreateInfo, nil, &framebuffers[i]); result != vk.Success {
+		if result := vk.CreateFramebuffer(deviceHandle, &framebufferCreateInfo, nil, &framebuffers[i]); result != vk.Success {
 			log.Err(vk.Error(result), "create framebuffer")
 			return
 		}
@@ -305,8 +242,8 @@ func main() {
 
 	defer (func() {
 		for i := range swapChainImages {
-			vk.DestroyImageView(device, framebufferViews[i], nil)
-			vk.DestroyFramebuffer(device, framebuffers[i], nil)
+			vk.DestroyImageView(deviceHandle, framebufferViews[i], nil)
+			vk.DestroyFramebuffer(deviceHandle, framebuffers[i], nil)
 		}
 	})()
 
@@ -325,12 +262,12 @@ func main() {
 			CodeSize: uint(len(shaderCode)),
 			PCode:    sliceUint32(shaderCode),
 		}
-		if result := vk.CreateShaderModule(device, &shaderModuleCreateInfo, nil, &vertShaderModule); result != vk.Success {
+		if result := vk.CreateShaderModule(deviceHandle, &shaderModuleCreateInfo, nil, &vertShaderModule); result != vk.Success {
 			log.Err(vk.Error(result), "create vertex shader")
 			return
 		}
 	}
-	defer vk.DestroyShaderModule(device, vertShaderModule, nil)
+	defer vk.DestroyShaderModule(deviceHandle, vertShaderModule, nil)
 	{
 		shaderCode, err := ioutil.ReadFile("tri.frag.spv")
 		if err != nil {
@@ -343,12 +280,12 @@ func main() {
 			CodeSize: uint(len(shaderCode)),
 			PCode:    sliceUint32(shaderCode),
 		}
-		if result := vk.CreateShaderModule(device, &shaderModuleCreateInfo, nil, &fragShaderModule); result != vk.Success {
+		if result := vk.CreateShaderModule(deviceHandle, &shaderModuleCreateInfo, nil, &fragShaderModule); result != vk.Success {
 			log.Err(vk.Error(result), "create frag shader")
 			return
 		}
 	}
-	defer vk.DestroyShaderModule(device, fragShaderModule, nil)
+	defer vk.DestroyShaderModule(deviceHandle, fragShaderModule, nil)
 
 	// Shader stages
 	// PName must be "main"???
@@ -468,11 +405,11 @@ func main() {
 		SType: vk.StructureTypePipelineLayoutCreateInfo,
 	}
 	var pipelineLayout vk.PipelineLayout
-	if result := vk.CreatePipelineLayout(device, &layoutCreateInfo, nil, &pipelineLayout); result != vk.Success {
+	if result := vk.CreatePipelineLayout(deviceHandle, &layoutCreateInfo, nil, &pipelineLayout); result != vk.Success {
 		log.Err(vk.Error(result), "create pipeline layout")
 		return
 	}
-	defer vk.DestroyPipelineLayout(device, pipelineLayout, nil)
+	defer vk.DestroyPipelineLayout(deviceHandle, pipelineLayout, nil)
 
 	// Graphics pipeline
 	pipelineCreateInfo := []vk.GraphicsPipelineCreateInfo{
@@ -492,11 +429,11 @@ func main() {
 		},
 	}
 	graphicsPipeline := make([]vk.Pipeline, 1)
-	if result := vk.CreateGraphicsPipelines(device, nil, 1, pipelineCreateInfo, nil, graphicsPipeline); result != vk.Success {
+	if result := vk.CreateGraphicsPipelines(deviceHandle, nil, 1, pipelineCreateInfo, nil, graphicsPipeline); result != vk.Success {
 		log.Err(vk.Error(result), "create pipeline layout")
 		return
 	}
-	defer vk.DestroyPipeline(device, graphicsPipeline[0], nil)
+	defer vk.DestroyPipeline(deviceHandle, graphicsPipeline[0], nil)
 
 	// Set up Command buffers
 	// Command pool
@@ -505,11 +442,11 @@ func main() {
 		SType:            vk.StructureTypeCommandPoolCreateInfo,
 		QueueFamilyIndex: graphicsFamilyIndex,
 	}
-	if result := vk.CreateCommandPool(device, &graphicsCmdPoolCreateInfo, nil, &graphicsQueueCmdPool); result != vk.Success {
+	if result := vk.CreateCommandPool(deviceHandle, &graphicsCmdPoolCreateInfo, nil, &graphicsQueueCmdPool); result != vk.Success {
 		log.Err(vk.Error(result), "create graphics command pool")
 		return
 	}
-	defer vk.DestroyCommandPool(device, graphicsQueueCmdPool, nil)
+	defer vk.DestroyCommandPool(deviceHandle, graphicsQueueCmdPool, nil)
 
 	// Set up Command buffers
 	graphicsQueueCmdBuffers := make([]vk.CommandBuffer, imageCount)
@@ -519,11 +456,11 @@ func main() {
 		Level:              vk.CommandBufferLevelPrimary,
 		CommandBufferCount: imageCount,
 	}
-	if result := vk.AllocateCommandBuffers(device, &graphicsCmdBufferAllocateInfo, graphicsQueueCmdBuffers); result != vk.Success {
+	if result := vk.AllocateCommandBuffers(deviceHandle, &graphicsCmdBufferAllocateInfo, graphicsQueueCmdBuffers); result != vk.Success {
 		log.Err(vk.Error(result), "allocate graphics command buffers")
 		return
 	}
-	defer vk.FreeCommandBuffers(device, graphicsQueueCmdPool, imageCount, graphicsQueueCmdBuffers)
+	defer vk.FreeCommandBuffers(deviceHandle, graphicsQueueCmdPool, imageCount, graphicsQueueCmdBuffers)
 
 	// Record the buffers
 	graphicsCmdBufferBeginInfo := vk.CommandBufferBeginInfo{
@@ -598,7 +535,7 @@ func main() {
 	fmt.Println("Drawing")
 	for !framework.ShouldClose() {
 		var imageIndex uint32
-		result := vk.AcquireNextImage(device, swapchain, vk.MaxUint64, imageAvailableSemaphore, vk.NullFence, &imageIndex)
+		result := vk.AcquireNextImage(deviceHandle, swapchain, vk.MaxUint64, imageAvailableSemaphore, vk.NullFence, &imageIndex)
 		switch result {
 		case vk.Success:
 			fallthrough
@@ -665,7 +602,7 @@ func main() {
 
 		glfw.PollEvents()
 	}
+	framework.BackendDevice().WaitIdle()
 
-	vk.DeviceWaitIdle(device)
 	log.Log("fin")
 }

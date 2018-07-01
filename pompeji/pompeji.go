@@ -188,7 +188,7 @@ func (i *Instance) EnumerateGPUs() ([]GPU, error) {
 
 	gpus := make([]GPU, gpuCount)
 	for t, gpu := range vkGPUs {
-		gpus[t] = createGPU(gpu)
+		gpus[t] = newGPU(gpu)
 	}
 
 	return gpus, nil
@@ -225,30 +225,45 @@ func (g GPUType) String() string {
 	}
 }
 
+type QueueFamily struct {
+	Index    int
+	Graphics bool
+	Compute  bool
+	Transfer bool
+
+	physicalDevice vk.PhysicalDevice
+}
+
+func (q QueueFamily) SurfacePresentSupport(surface Surface) bool {
+	var presentSupport vk.Bool32
+	vk.GetPhysicalDeviceSurfaceSupport(q.physicalDevice, uint32(q.Index), surface.Handle(), &presentSupport)
+	return (presentSupport > 0)
+}
+
 type GPU struct {
 	Name string
 	Type GPUType
 
-	device   vk.PhysicalDevice
-	props    vk.PhysicalDeviceProperties
-	memProps vk.PhysicalDeviceMemoryProperties
-	features vk.PhysicalDeviceFeatures
+	physicalDevice vk.PhysicalDevice
+	props          vk.PhysicalDeviceProperties
+	memProps       vk.PhysicalDeviceMemoryProperties
+	features       vk.PhysicalDeviceFeatures
 }
 
-func createGPU(device vk.PhysicalDevice) GPU {
+func newGPU(physicalDevice vk.PhysicalDevice) GPU {
 	g := GPU{
-		device: device,
+		physicalDevice: physicalDevice,
 	}
 
-	vk.GetPhysicalDeviceProperties(g.device, &g.props)
+	vk.GetPhysicalDeviceProperties(g.physicalDevice, &g.props)
 	g.props.Deref()
 	g.props.Limits.Deref()
 	g.props.SparseProperties.Deref()
 
-	vk.GetPhysicalDeviceMemoryProperties(g.device, &g.memProps)
+	vk.GetPhysicalDeviceMemoryProperties(g.physicalDevice, &g.memProps)
 	g.memProps.Deref()
 
-	vk.GetPhysicalDeviceFeatures(g.device, &g.features)
+	vk.GetPhysicalDeviceFeatures(g.physicalDevice, &g.features)
 	g.features.Deref()
 
 	g.Name = string(g.props.DeviceName[:])
@@ -284,8 +299,82 @@ func (g GPU) Match(resWidth, resHeight uint32) bool {
 	return (g.props.Limits.MaxViewportDimensions[0] >= resWidth && g.props.Limits.MaxViewportDimensions[1] >= resHeight)
 }
 
+func (g GPU) QueueFamilies() ([]QueueFamily, error) {
+	var queueFamilyCount uint32
+	vk.GetPhysicalDeviceQueueFamilyProperties(g.physicalDevice, &queueFamilyCount, nil)
+	if queueFamilyCount == 0 {
+		return nil, errors.New("no queue families")
+	}
+
+	families := []QueueFamily{}
+
+	queueFamilies := make([]vk.QueueFamilyProperties, queueFamilyCount)
+	vk.GetPhysicalDeviceQueueFamilyProperties(g.physicalDevice, &queueFamilyCount, queueFamilies)
+	for i, family := range queueFamilies {
+		family.Deref()
+
+		families = append(families, QueueFamily{
+			Index:          i,
+			Graphics:       (family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0),
+			Compute:        (family.QueueFlags&vk.QueueFlags(vk.QueueComputeBit) != 0),
+			Transfer:       (family.QueueFlags&vk.QueueFlags(vk.QueueTransferBit) != 0),
+			physicalDevice: g.physicalDevice,
+		})
+	}
+
+	return families, nil
+}
+
+func (g *GPU) CreateDevice(queueFamilyIndex int) (*Device, error) {
+	return newDevice(g, queueFamilyIndex)
+}
+
 func (g GPU) Handle() vk.PhysicalDevice {
-	return g.device
+	return g.physicalDevice
+}
+
+type Device struct {
+	logicalDevice vk.Device
+}
+
+func newDevice(g *GPU, graphicsFamilyIndex int) (*Device, error) {
+	d := Device{}
+
+	queuePriorities := []float32{1.0}
+	deviceCreateInfo := vk.DeviceCreateInfo{
+		SType:                vk.StructureTypeDeviceCreateInfo,
+		QueueCreateInfoCount: 1,
+		PQueueCreateInfos: []vk.DeviceQueueCreateInfo{
+			{
+				SType:            vk.StructureTypeDeviceQueueCreateInfo,
+				QueueFamilyIndex: uint32(graphicsFamilyIndex),
+				QueueCount:       uint32(len(queuePriorities)),
+				PQueuePriorities: queuePriorities,
+			},
+		},
+		EnabledLayerCount:       0,
+		PpEnabledLayerNames:     nil,
+		EnabledExtensionCount:   1,
+		PpEnabledExtensionNames: []string{vkString("VK_KHR_swapchain")},
+	}
+	if result := vk.CreateDevice(g.Handle(), &deviceCreateInfo, nil, &d.logicalDevice); result != vk.Success {
+		return nil, errors.Wrap(vk.Error(result), "create device")
+	}
+
+	return &d, nil
+}
+
+func (d *Device) Destroy() {
+	d.WaitIdle()
+	vk.DestroyDevice(d.logicalDevice, nil)
+}
+
+func (d Device) WaitIdle() {
+	vk.DeviceWaitIdle(d.logicalDevice)
+}
+
+func (d Device) Handle() vk.Device {
+	return d.logicalDevice
 }
 
 type Surface interface {

@@ -17,6 +17,7 @@ type Myr struct {
 	instance *pompeji.Instance
 	gpu      *pompeji.GPU
 	surface  pompeji.Surface
+	device   *pompeji.Device
 }
 
 func New(appName string, resWidth, resHeight int) (*Myr, error) {
@@ -67,11 +68,30 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 		return nil, err
 	}
 
+	families, err := m.gpu.QueueFamilies()
+	if err != nil {
+		return nil, errors.Wrap(err, "could not get families")
+	}
+	m.log.Log("Queue families: %d\n", len(families))
+	for _, family := range families {
+		m.log.Log("%+v\n", family)
+		if family.SurfacePresentSupport(m.surface) {
+			m.log.Log("Family %d => present support\n", family.Index)
+		}
+	}
+
+	m.device, err = m.gpu.CreateDevice(0)
+	if err != nil {
+		return nil, err
+	}
+
 	return &m, nil
 }
 
 func (m *Myr) Destroy() {
+	m.device.Destroy()
 	m.surface.Destroy()
+
 	m.instance.Destroy()
 	m.window.Destroy()
 
@@ -92,4 +112,8 @@ func (m Myr) BackendGPU() *pompeji.GPU {
 
 func (m Myr) BackendSurface() pompeji.Surface {
 	return m.surface
+}
+
+func (m Myr) BackendDevice() *pompeji.Device {
+	return m.device
 }
