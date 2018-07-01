@@ -1,54 +1,20 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io/ioutil"
-	"log"
-	"os"
 	"runtime"
 	"unsafe"
 
-	"github.com/pkg/errors"
 	"github.com/vulkan-go/glfw/v3.3/glfw"
 	vk "github.com/vulkan-go/vulkan"
+
+	"github.com/perlw/abyssal_drifter/logger"
+	"github.com/perlw/abyssal_drifter/myr"
 )
 
 func init() {
 	runtime.LockOSThread()
-}
-
-type Logger struct {
-	log   *log.Logger
-	warn  *log.Logger
-	err   *log.Logger
-	trace *log.Logger
-}
-
-func NewLogger(prefix string) Logger {
-	return Logger{
-		log:   log.New(os.Stdout, "["+prefix+"] ", log.Ldate|log.Ltime),
-		warn:  log.New(os.Stderr, "["+prefix+" WARN] ", log.Ldate|log.Ltime|log.Lshortfile),
-		err:   log.New(os.Stderr, "["+prefix+" ERR] ", log.Ldate|log.Ltime|log.Llongfile),
-		trace: log.New(os.Stderr, "["+prefix+" ERR] ", log.Ldate|log.Ltime|log.Llongfile),
-	}
-}
-
-func (l Logger) Log(format string, a ...interface{}) {
-	l.log.Printf(format, a...)
-}
-func (l Logger) Warn(format string, a ...interface{}) {
-	l.warn.Printf(format, a...)
-}
-func (l Logger) Err(err error, format string, a ...interface{}) {
-	if err != nil {
-		l.err.Printf(format+","+err.Error(), a...)
-	} else {
-		l.err.Printf(format, a...)
-	}
-}
-func (l Logger) Trace(format string, a ...interface{}) {
-	l.trace.Printf(format, a...)
 }
 
 // +Byte slice to uint32 slice
@@ -74,325 +40,23 @@ func vkString(str string) string {
 	return str
 }
 
-const EngineName = "MYR"
-
-func inStringSlice(slice []string, val string) bool {
-	for _, v := range slice {
-		if v == val {
-			return true
-		}
-	}
-	return false
-}
-
-func getAvailableInstanceExtensions() ([]string, error) {
-	var count uint32
-	if result := vk.EnumerateInstanceExtensionProperties("", &count, nil); result != vk.Success {
-		return nil, errors.New("could not count instance extensions")
-	}
-	extensions := make([]vk.ExtensionProperties, count)
-	if result := vk.EnumerateInstanceExtensionProperties("", &count, extensions); result != vk.Success {
-		return nil, errors.New("could not get instance extensions")
-	}
-
-	names := make([]string, count)
-	for t, ext := range extensions {
-		ext.Deref()
-		names[t] = vk.ToString(ext.ExtensionName[:])
-	}
-	return names, nil
-}
-
-func getAvailableInstanceLayers() ([]string, error) {
-	var count uint32
-	if result := vk.EnumerateInstanceLayerProperties(&count, nil); result != vk.Success {
-		return nil, errors.New("could not count instance layers")
-	}
-	layers := make([]vk.LayerProperties, count)
-	if result := vk.EnumerateInstanceLayerProperties(&count, layers); result != vk.Success {
-		return nil, errors.New("could not get instance layers")
-	}
-
-	names := make([]string, count)
-	for t, layer := range layers {
-		layer.Deref()
-		names[t] = vk.ToString(layer.LayerName[:])
-	}
-	return names, nil
-}
-
-type myrInternal struct {
-	instance vk.Instance
-	dbg      vk.DebugReportCallback
-}
-
-type Myr struct {
-	log Logger
-
-	internal *myrInternal
-}
-
-func NewMyr(appName string) (*Myr, error) {
-	myr := Myr{
-		log:      NewLogger(EngineName),
-		internal: &myrInternal{},
-	}
-
-	if err := vk.Init(); err != nil {
-		return nil, errors.Wrap(err, "could not initialize vulkan")
-	}
-
-	debug := false
-	layers := []string{}
-	{
-		available, err := getAvailableInstanceLayers()
-		if err != nil {
-			return nil, errors.Wrap(err, "could not get layers")
-		}
-		if inStringSlice(available, "VK_LAYER_LUNARG_standard_validation") {
-			layers = append(layers, vkString("VK_LAYER_LUNARG_standard_validation"))
-		}
-	}
-
-	exts := vk.GetRequiredInstanceExtensions()
-	{
-		available, err := getAvailableInstanceExtensions()
-		if err != nil {
-			return nil, errors.Wrap(err, "could not get instance extensions")
-		}
-		if inStringSlice(available, "VK_EXT_debug_report") {
-			debug = true
-			exts = append(exts, vkString("VK_EXT_debug_report"))
-		}
-	}
-
-	instanceInfo := vk.InstanceCreateInfo{
-		SType: vk.StructureTypeInstanceCreateInfo,
-		PApplicationInfo: &vk.ApplicationInfo{
-			SType:              vk.StructureTypeApplicationInfo,
-			PApplicationName:   vkString(appName),
-			ApplicationVersion: vk.MakeVersion(1, 0, 0),
-			PEngineName:        vkString(EngineName),
-			EngineVersion:      vk.MakeVersion(0, 0, 1),
-			ApiVersion:         vk.ApiVersion10,
-		},
-		EnabledLayerCount:       uint32(len(layers)),
-		PpEnabledLayerNames:     layers,
-		EnabledExtensionCount:   uint32(len(exts)),
-		PpEnabledExtensionNames: exts,
-	}
-
-	if result := vk.CreateInstance(&instanceInfo, nil, &myr.internal.instance); result != vk.Success {
-		return nil, errors.Wrap(vk.Error(result), "could not create instance")
-	}
-
-	myr.log.Log("instance created;\n\tlayers: %v\n\texts: %v\n", layers, exts)
-
-	vk.InitInstance(myr.internal.instance)
-
-	// +Debug
-	if debug {
-		debugCreateInfo := vk.DebugReportCallbackCreateInfo{
-			SType:       vk.StructureTypeDebugReportCallbackCreateInfo,
-			Flags:       vk.DebugReportFlags(vk.DebugReportErrorBit | vk.DebugReportWarningBit),
-			PfnCallback: myr.debugReportCallback,
-		}
-		if result := vk.CreateDebugReportCallback(myr.internal.instance, &debugCreateInfo, nil, &myr.internal.dbg); result != vk.Success {
-			myr.log.Err(vk.Error(result), "creating debug report")
-		}
-	}
-	// -Debug
-
-	return &myr, nil
-}
-
-func (m *Myr) Destroy() {
-	if m.internal.dbg != vk.NullDebugReportCallback {
-		vk.DestroyDebugReportCallback(m.internal.instance, m.internal.dbg, nil)
-	}
-	vk.DestroyInstance(m.internal.instance, nil)
-}
-
-func (m *Myr) debugReportCallback(flags vk.DebugReportFlags, objectType vk.DebugReportObjectType,
-	object uint64, location uint, messageCode int32, pLayerPrefix string,
-	pMessage string, pUserData unsafe.Pointer) vk.Bool32 {
-	switch {
-	case flags&vk.DebugReportFlags(vk.DebugReportErrorBit) != 0:
-		m.log.Log("[VK DBG ERR %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
-	case flags&vk.DebugReportFlags(vk.DebugReportWarningBit) != 0:
-		m.log.Log("[VK DBG WARN %d] %s on layer %s", messageCode, pMessage, pLayerPrefix)
-	default:
-		m.log.Log("[VK DBG UNK] unknown debug message %d (layer %s)", messageCode, pLayerPrefix)
-	}
-	return vk.Bool32(vk.False)
-}
-
-func (m *Myr) EnumerateGPUs() ([]GPU, error) {
-	var gpuCount uint32
-	if result := vk.EnumeratePhysicalDevices(m.internal.instance, &gpuCount, nil); result != vk.Success {
-		return nil, errors.Wrap(vk.Error(result), "could not count gpus")
-	}
-	if gpuCount == 0 {
-		return nil, errors.New("no valid gpus")
-	}
-	vkGPUs := make([]vk.PhysicalDevice, gpuCount)
-	if result := vk.EnumeratePhysicalDevices(m.internal.instance, &gpuCount, vkGPUs); result != vk.Success {
-		return nil, errors.Wrap(vk.Error(result), "could not enumerate gpus")
-	}
-
-	gpus := make([]GPU, gpuCount)
-	for t, gpu := range vkGPUs {
-		gpus[t] = createGPU(gpu)
-	}
-
-	return gpus, nil
-}
-
-type GPUType uint32
-
-const (
-	GPUTypeOther      GPUType = GPUType(vk.PhysicalDeviceTypeOther)
-	GPUTypeIntegrated         = GPUType(vk.PhysicalDeviceTypeIntegratedGpu)
-	GPUTypeDiscrete           = GPUType(vk.PhysicalDeviceTypeDiscreteGpu)
-	GPUTypeVirtual            = GPUType(vk.PhysicalDeviceTypeVirtualGpu)
-	GPUTypeCPU                = GPUType(vk.PhysicalDeviceTypeCpu)
-)
-
-func (g GPUType) String() string {
-	switch g {
-	case GPUTypeOther:
-		return "Other"
-	case GPUTypeIntegrated:
-		return "Integrated"
-	case GPUTypeDiscrete:
-		return "Discrete"
-	case GPUTypeVirtual:
-		return "Virtual"
-	case GPUTypeCPU:
-		return "CPU"
-	default:
-		panic("unreachable")
-	}
-}
-
-type gpuInternal struct {
-	gpu      vk.PhysicalDevice
-	props    vk.PhysicalDeviceProperties
-	memProps vk.PhysicalDeviceMemoryProperties
-	features vk.PhysicalDeviceFeatures
-}
-
-type GPU struct {
-	Name string
-	Type GPUType
-
-	internal *gpuInternal
-}
-
-func createGPU(vkGPU vk.PhysicalDevice) GPU {
-	gpu := GPU{
-		internal: &gpuInternal{
-			gpu: vkGPU,
-		},
-	}
-
-	vk.GetPhysicalDeviceProperties(gpu.internal.gpu, &gpu.internal.props)
-	gpu.internal.props.Deref()
-	gpu.internal.props.Limits.Deref()
-	gpu.internal.props.SparseProperties.Deref()
-
-	vk.GetPhysicalDeviceMemoryProperties(gpu.internal.gpu, &gpu.internal.memProps)
-	gpu.internal.memProps.Deref()
-
-	vk.GetPhysicalDeviceFeatures(gpu.internal.gpu, &gpu.internal.features)
-	gpu.internal.features.Deref()
-
-	gpu.Name = string(gpu.internal.props.DeviceName[:])
-	gpu.Type = GPUType(gpu.internal.props.DeviceType)
-
-	return gpu
-}
-
-func (g GPU) Debug() string {
-	buffer := bytes.Buffer{}
-
-	buffer.WriteString(fmt.Sprintln("Device Name:", g.Name))
-	buffer.WriteString(fmt.Sprintln("Device Type:", g.Type))
-	buffer.WriteString("## Backend\n")
-	buffer.WriteString(fmt.Sprintf("Vulkan v%d.%d.%d\n",
-		(g.internal.props.ApiVersion>>22)&0x3ff,
-		(g.internal.props.ApiVersion>>12)&0x3ff,
-		g.internal.props.ApiVersion&0xfff,
-	))
-	buffer.WriteString(fmt.Sprintf("Driver v%d.%d.%d\n",
-		(g.internal.props.DriverVersion>>22)&0x3ff,
-		(g.internal.props.DriverVersion>>12)&0x3ff,
-		g.internal.props.DriverVersion&0xfff,
-	))
-	buffer.WriteString(fmt.Sprintln("Max Image Dimension:", g.internal.props.Limits.MaxImageDimension2D))
-	buffer.WriteString(fmt.Sprintln("Max Viewports:", g.internal.props.Limits.MaxViewports))
-	buffer.WriteString(fmt.Sprintln("Max Viewport Dimensions:", g.internal.props.Limits.MaxViewportDimensions[0], g.internal.props.Limits.MaxViewportDimensions[1]))
-
-	return buffer.String()
-}
-
-func (g GPU) Match(resWidth, resHeight uint32) bool {
-	return (g.internal.props.Limits.MaxViewportDimensions[0] >= resWidth && g.internal.props.Limits.MaxViewportDimensions[1] >= resHeight)
-}
-
 const APP_NAME = "Abyssal Drifter"
 const RES_WIDTH = 640
 const RES_HEIGHT = 480
 
 func main() {
-	log := NewLogger(APP_NAME)
+	log := logger.New(APP_NAME)
 
-	glfw.Init()
-	defer glfw.Terminate()
-	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
-	glfw.WindowHint(glfw.Resizable, glfw.False)
-	window, err := glfw.CreateWindow(RES_WIDTH, RES_HEIGHT, APP_NAME, nil, nil)
+	framework, err := myr.New(APP_NAME, RES_WIDTH, RES_HEIGHT)
 	if err != nil {
 		panic(err.Error())
 	}
-	defer window.Destroy()
+	defer framework.Destroy()
+
+	gpuHandle := framework.BackendGPU().Handle()
+	surfaceHandle := framework.BackendSurface().Handle()
 
 	// +Set up Vulkan
-	myr, err := NewMyr(APP_NAME)
-	if err != nil {
-		panic(err.Error())
-		return
-	}
-	defer myr.Destroy()
-
-	gpus, err := myr.EnumerateGPUs()
-	if err != nil {
-		log.Err(err, "enumerating GPUs")
-		return
-	}
-	var chosenGPU *GPU
-	for t, gpu := range gpus {
-		log.Log("# GPU %d\n%s", t, gpu.Debug())
-		log.Log(gpu.Debug())
-		if gpu.Match(RES_WIDTH, RES_HEIGHT) {
-			chosenGPU = &gpus[t]
-		}
-	}
-	if chosenGPU == nil {
-		log.Err(nil, "no matching GPU")
-		return
-	}
-	gpuHandle := chosenGPU.internal.gpu
-	log.Log("Picked: %s\n", chosenGPU.Name)
-
-	// Surface
-	var surface vk.Surface
-	if result := vk.CreateWindowSurface(myr.internal.instance, window.GLFWWindow(), nil, &surface); result != vk.Success {
-		log.Err(vk.Error(result), "create window surface")
-		return
-	}
-	defer vk.DestroySurface(myr.internal.instance, surface, nil)
-
 	// Check queue families
 	var queueFamilyCount uint32
 	vk.GetPhysicalDeviceQueueFamilyProperties(gpuHandle, &queueFamilyCount, nil)
@@ -410,7 +74,7 @@ func main() {
 		family.Deref()
 
 		var presentSupport vk.Bool32
-		vk.GetPhysicalDeviceSurfaceSupport(gpuHandle, uint32(i), surface, &presentSupport)
+		vk.GetPhysicalDeviceSurfaceSupport(gpuHandle, uint32(i), surfaceHandle, &presentSupport)
 
 		if family.QueueCount > 0 && family.QueueFlags&vk.QueueFlags(vk.QueueGraphicsBit) != 0 {
 			graphicsFamilyIndex = uint32(i)
@@ -486,7 +150,7 @@ func main() {
 
 	// Swap chain
 	var surfaceCapabilities vk.SurfaceCapabilities
-	if result := vk.GetPhysicalDeviceSurfaceCapabilities(gpuHandle, surface, &surfaceCapabilities); result != vk.Success {
+	if result := vk.GetPhysicalDeviceSurfaceCapabilities(gpuHandle, surfaceHandle, &surfaceCapabilities); result != vk.Success {
 		log.Err(vk.Error(result), "get surface caps")
 		return
 	}
@@ -498,9 +162,9 @@ func main() {
 	log.Log("surface max: %dx%d", surfaceCapabilities.MaxImageExtent.Width, surfaceCapabilities.MaxImageExtent.Height)
 
 	var formatCount uint32
-	vk.GetPhysicalDeviceSurfaceFormats(gpuHandle, surface, &formatCount, nil)
+	vk.GetPhysicalDeviceSurfaceFormats(gpuHandle, surfaceHandle, &formatCount, nil)
 	formats := make([]vk.SurfaceFormat, formatCount)
-	vk.GetPhysicalDeviceSurfaceFormats(gpuHandle, surface, &formatCount, formats)
+	vk.GetPhysicalDeviceSurfaceFormats(gpuHandle, surfaceHandle, &formatCount, formats)
 	format := formats[0]
 	format.Deref()
 
@@ -508,7 +172,7 @@ func main() {
 	var swapchain vk.Swapchain
 	swapChainCreateInfo := vk.SwapchainCreateInfo{
 		SType:           vk.StructureTypeSwapchainCreateInfo,
-		Surface:         surface,
+		Surface:         surfaceHandle,
 		MinImageCount:   2,
 		ImageFormat:     format.Format,
 		ImageColorSpace: format.ColorSpace,
@@ -932,7 +596,7 @@ func main() {
 	// -Set up render pass
 
 	fmt.Println("Drawing")
-	for !window.ShouldClose() {
+	for !framework.ShouldClose() {
 		var imageIndex uint32
 		result := vk.AcquireNextImage(device, swapchain, vk.MaxUint64, imageAvailableSemaphore, vk.NullFence, &imageIndex)
 		switch result {
