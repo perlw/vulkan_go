@@ -9,6 +9,15 @@ import (
 	vk "github.com/vulkan-go/vulkan"
 )
 
+func inStringSlice(slice []string, val string) bool {
+	for _, v := range slice {
+		if v == val {
+			return true
+		}
+	}
+	return false
+}
+
 func vkString(str string) string {
 	if len(str) == 0 {
 		return "\x00"
@@ -25,7 +34,7 @@ func Init() error {
 	return nil
 }
 
-func GetAvailableInstanceExtensions() ([]string, error) {
+func getAvailableInstanceExtensions() ([]string, error) {
 	var count uint32
 	if result := vk.EnumerateInstanceExtensionProperties("", &count, nil); result != vk.Success {
 		return nil, errors.New("could not count instance extensions")
@@ -43,7 +52,7 @@ func GetAvailableInstanceExtensions() ([]string, error) {
 	return names, nil
 }
 
-func GetAvailableInstanceLayers() ([]string, error) {
+func getAvailableInstanceLayers() ([]string, error) {
 	var count uint32
 	if result := vk.EnumerateInstanceLayerProperties(&count, nil); result != vk.Success {
 		return nil, errors.New("could not count instance layers")
@@ -72,15 +81,34 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 		dbg: vk.NullDebugReportCallback,
 	}
 
-	for t, name := range layers {
-		layers[t] = vkString(name)
-	}
-	debug := false
-	for t, name := range extensions {
-		if name == "VK_EXT_debug_report" {
-			debug = true
+	activeLayers := []string{}
+	if layers != nil {
+		available, err := getAvailableInstanceLayers()
+		if err != nil {
+			return nil, errors.Wrap(err, "could not get layers")
 		}
-		extensions[t] = vkString(name)
+		for _, name := range layers {
+			if inStringSlice(available, name) {
+				activeLayers = append(activeLayers, vkString(name))
+			}
+		}
+	}
+
+	debug := false
+	activeExtensions := vk.GetRequiredInstanceExtensions()
+	if extensions != nil {
+		available, err := getAvailableInstanceExtensions()
+		if err != nil {
+			return nil, errors.Wrap(err, "could not get instance extensions")
+		}
+		for _, name := range extensions {
+			if inStringSlice(available, name) {
+				if name == "VK_EXT_debug_report" {
+					debug = true
+				}
+				activeExtensions = append(activeExtensions, vkString(name))
+			}
+		}
 	}
 
 	instanceInfo := vk.InstanceCreateInfo{
@@ -93,10 +121,10 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 			EngineVersion:      vk.MakeVersion(0, 0, 1),
 			ApiVersion:         vk.ApiVersion10,
 		},
-		EnabledLayerCount:       uint32(len(layers)),
-		PpEnabledLayerNames:     layers,
-		EnabledExtensionCount:   uint32(len(extensions)),
-		PpEnabledExtensionNames: extensions,
+		EnabledLayerCount:       uint32(len(activeLayers)),
+		PpEnabledLayerNames:     activeLayers,
+		EnabledExtensionCount:   uint32(len(activeExtensions)),
+		PpEnabledExtensionNames: activeExtensions,
 	}
 
 	if result := vk.CreateInstance(&instanceInfo, nil, &i.instance); result != vk.Success {
@@ -104,6 +132,8 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 	}
 
 	vk.InitInstance(i.instance)
+
+	fmt.Printf("instance created;\n\tlayers: %v\n\texts: %v\n", activeLayers, activeExtensions)
 
 	// +Debug
 	if debug {
