@@ -56,17 +56,15 @@ func main() {
 	// NOTE: Only for dev
 	gpuHandle := framework.BackendGPU().Handle()
 	surfaceHandle := framework.BackendSurface().Handle()
+	device := framework.BackendDevice()
 	deviceHandle := framework.BackendDevice().Handle()
-
-	graphicsFamilyIndex := uint32(0)
-	presentFamilyIndex := uint32(0)
 
 	// +Prepare rendering
 	// Get command queue
 	var graphicsQueue vk.Queue
 	var presentQueue vk.Queue
-	vk.GetDeviceQueue(deviceHandle, graphicsFamilyIndex, 0, &graphicsQueue)
-	vk.GetDeviceQueue(deviceHandle, presentFamilyIndex, 0, &presentQueue)
+	vk.GetDeviceQueue(deviceHandle, uint32(device.GraphicsIndex), 0, &graphicsQueue)
+	vk.GetDeviceQueue(deviceHandle, uint32(device.PresentIndex), 0, &presentQueue)
 
 	// Semaphores
 	var imageAvailableSemaphore vk.Semaphore
@@ -440,7 +438,7 @@ func main() {
 	var graphicsQueueCmdPool vk.CommandPool
 	graphicsCmdPoolCreateInfo := vk.CommandPoolCreateInfo{
 		SType:            vk.StructureTypeCommandPoolCreateInfo,
-		QueueFamilyIndex: graphicsFamilyIndex,
+		QueueFamilyIndex: uint32(device.GraphicsIndex),
 	}
 	if result := vk.CreateCommandPool(deviceHandle, &graphicsCmdPoolCreateInfo, nil, &graphicsQueueCmdPool); result != vk.Success {
 		log.Err(vk.Error(result), "create graphics command pool")
@@ -481,8 +479,8 @@ func main() {
 			DstAccessMask:       vk.AccessFlags(vk.AccessColorAttachmentWriteBit),
 			OldLayout:           vk.ImageLayoutPresentSrc,
 			NewLayout:           vk.ImageLayoutPresentSrc,
-			SrcQueueFamilyIndex: presentFamilyIndex,
-			DstQueueFamilyIndex: graphicsFamilyIndex,
+			SrcQueueFamilyIndex: uint32(device.PresentIndex),
+			DstQueueFamilyIndex: uint32(device.GraphicsIndex),
 			Image:               swapChainImages[i],
 			SubresourceRange:    graphicsSubresourceRange,
 		}
@@ -518,8 +516,8 @@ func main() {
 			DstAccessMask:       vk.AccessFlags(vk.AccessMemoryReadBit),
 			OldLayout:           vk.ImageLayoutPresentSrc,
 			NewLayout:           vk.ImageLayoutPresentSrc,
-			SrcQueueFamilyIndex: graphicsFamilyIndex,
-			DstQueueFamilyIndex: presentFamilyIndex,
+			SrcQueueFamilyIndex: uint32(device.GraphicsIndex),
+			DstQueueFamilyIndex: uint32(device.PresentIndex),
 			Image:               swapChainImages[i],
 			SubresourceRange:    graphicsSubresourceRange,
 		}

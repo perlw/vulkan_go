@@ -73,14 +73,19 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 		return nil, errors.Wrap(err, "could not get families")
 	}
 	m.log.Log("Queue families: %d\n", len(families))
+	graphicsFamily := -1
+	presentFamily := -1
 	for _, family := range families {
 		m.log.Log("%+v\n", family)
-		if family.SurfacePresentSupport(m.surface) {
-			m.log.Log("Family %d => present support\n", family.Index)
+		if family.Graphics {
+			graphicsFamily = family.Index
+			if family.SurfacePresentSupport(m.surface) {
+				m.log.Log("Family %d => present support\n", family.Index)
+				presentFamily = family.Index
+			}
 		}
 	}
-
-	m.device, err = m.gpu.CreateDevice(0)
+	m.device, err = m.gpu.CreateDevice(graphicsFamily, presentFamily)
 	if err != nil {
 		return nil, err
 	}

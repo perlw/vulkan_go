@@ -325,8 +325,8 @@ func (g GPU) QueueFamilies() ([]QueueFamily, error) {
 	return families, nil
 }
 
-func (g *GPU) CreateDevice(queueFamilyIndex int) (*Device, error) {
-	return newDevice(g, queueFamilyIndex)
+func (g *GPU) CreateDevice(queueFamilyIndex, presentFamilyIndex int) (*Device, error) {
+	return newDevice(g, queueFamilyIndex, presentFamilyIndex)
 }
 
 func (g GPU) Handle() vk.PhysicalDevice {
@@ -334,11 +334,17 @@ func (g GPU) Handle() vk.PhysicalDevice {
 }
 
 type Device struct {
+	GraphicsIndex int
+	PresentIndex  int
+
 	logicalDevice vk.Device
 }
 
-func newDevice(g *GPU, graphicsFamilyIndex int) (*Device, error) {
-	d := Device{}
+func newDevice(g *GPU, graphicsFamilyIndex, presentFamilyIndex int) (*Device, error) {
+	d := Device{
+		GraphicsIndex: graphicsFamilyIndex,
+		PresentIndex:  presentFamilyIndex,
+	}
 
 	queuePriorities := []float32{1.0}
 	deviceCreateInfo := vk.DeviceCreateInfo{
