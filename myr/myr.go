@@ -5,7 +5,7 @@ import (
 	"github.com/vulkan-go/glfw/v3.3/glfw"
 
 	"github.com/perlw/abyssal_drifter/logger"
-	"github.com/perlw/abyssal_drifter/pompeji"
+	"github.com/perlw/abyssal_drifter/pompeii"
 )
 
 const engineName = "MYR"
@@ -14,10 +14,10 @@ type Myr struct {
 	log logger.Logger
 
 	window   *glfw.Window
-	instance *pompeji.Instance
-	gpu      *pompeji.GPU
-	surface  pompeji.Surface
-	device   *pompeji.Device
+	instance *pompeii.Instance
+	gpu      *pompeii.GPU
+	surface  pompeii.Surface
+	device   *pompeii.Device
 }
 
 func New(appName string, resWidth, resHeight int) (*Myr, error) {
@@ -34,11 +34,11 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 		panic(err.Error())
 	}
 
-	if err := pompeji.Init(); err != nil {
+	if err := pompeii.Init(); err != nil {
 		return nil, err
 	}
 
-	m.instance, err = pompeji.NewInstance(appName, engineName, []string{
+	m.instance, err = pompeii.NewInstance(appName, engineName, []string{
 		"VK_LAYER_LUNARG_standard_validation",
 	}, []string{
 		"VK_EXT_debug_report",
@@ -63,7 +63,7 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 	}
 	m.log.Log("Picked: %s\n", m.gpu.Name)
 
-	m.surface, err = pompeji.NewWindowSurface(m.instance, m.window.GLFWWindow())
+	m.surface, err = pompeii.NewWindowSurface(m.instance, m.window.GLFWWindow())
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 			}
 		}
 	}
-	m.device, err = m.gpu.CreateDevice(graphicsFamily, presentFamily)
+	m.device, err = pompeii.NewDevice(m.gpu, graphicsFamily, presentFamily)
 	if err != nil {
 		return nil, err
 	}
@@ -107,18 +107,18 @@ func (m Myr) ShouldClose() bool {
 	return m.window.ShouldClose()
 }
 
-func (m Myr) BackendInstance() *pompeji.Instance {
+func (m Myr) BackendInstance() *pompeii.Instance {
 	return m.instance
 }
 
-func (m Myr) BackendGPU() *pompeji.GPU {
+func (m Myr) BackendGPU() *pompeii.GPU {
 	return m.gpu
 }
 
-func (m Myr) BackendSurface() pompeji.Surface {
+func (m Myr) BackendSurface() pompeii.Surface {
 	return m.surface
 }
 
-func (m Myr) BackendDevice() *pompeji.Device {
+func (m Myr) BackendDevice() *pompeii.Device {
 	return m.device
 }

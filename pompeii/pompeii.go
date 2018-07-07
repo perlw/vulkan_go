@@ -1,4 +1,4 @@
-package pompeji
+package pompeii
 
 import (
 	"bytes"
@@ -325,10 +325,6 @@ func (g GPU) QueueFamilies() ([]QueueFamily, error) {
 	return families, nil
 }
 
-func (g *GPU) CreateDevice(queueFamilyIndex, presentFamilyIndex int) (*Device, error) {
-	return newDevice(g, queueFamilyIndex, presentFamilyIndex)
-}
-
 func (g GPU) Handle() vk.PhysicalDevice {
 	return g.physicalDevice
 }
@@ -340,7 +336,7 @@ type Device struct {
 	logicalDevice vk.Device
 }
 
-func newDevice(g *GPU, graphicsFamilyIndex, presentFamilyIndex int) (*Device, error) {
+func NewDevice(g *GPU, graphicsFamilyIndex, presentFamilyIndex int) (*Device, error) {
 	d := Device{
 		GraphicsIndex: graphicsFamilyIndex,
 		PresentIndex:  presentFamilyIndex,
