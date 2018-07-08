@@ -90,6 +90,8 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 		for _, name := range layers {
 			if inStringSlice(available, name) {
 				activeLayers = append(activeLayers, vkString(name))
+			} else {
+				fmt.Println("missing layer", name)
 			}
 		}
 	}
@@ -107,6 +109,8 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 					debug = true
 				}
 				activeExtensions = append(activeExtensions, vkString(name))
+			} else {
+				fmt.Println("missing extension", name)
 			}
 		}
 	}

@@ -40,6 +40,7 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 
 	m.instance, err = pompeii.NewInstance(appName, engineName, []string{
 		"VK_LAYER_LUNARG_standard_validation",
+		"VK_LAYER_LUNARG_assistant_layer",
 	}, []string{
 		"VK_EXT_debug_report",
 	})
