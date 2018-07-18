@@ -11,6 +11,7 @@ import (
 
 	"github.com/perlw/abyssal_drifter/logger"
 	"github.com/perlw/abyssal_drifter/myr"
+	"github.com/perlw/abyssal_drifter/pompeii"
 )
 
 func init() {
@@ -67,21 +68,18 @@ func main() {
 	vk.GetDeviceQueue(deviceHandle, uint32(device.PresentIndex), 0, &presentQueue)
 
 	// Semaphores
-	var imageAvailableSemaphore vk.Semaphore
-	var renderingFinishedSemaphore vk.Semaphore
-	semaphoreCreateInfo := vk.SemaphoreCreateInfo{
-		SType: vk.StructureTypeSemaphoreCreateInfo,
-	}
-	if result := vk.CreateSemaphore(deviceHandle, &semaphoreCreateInfo, nil, &imageAvailableSemaphore); result != vk.Success {
-		log.Err(vk.Error(result), "create semaphore, image")
+	imageAvailableSemaphore, err := pompeii.NewSemaphore(device)
+	if err != nil {
+		log.Err(err, "image")
 		return
 	}
-	if result := vk.CreateSemaphore(deviceHandle, &semaphoreCreateInfo, nil, &renderingFinishedSemaphore); result != vk.Success {
-		log.Err(vk.Error(result), "create semaphore, rendering")
+	renderingFinishedSemaphore, err := pompeii.NewSemaphore(device)
+	if err != nil {
+		log.Err(err, "rendering")
 		return
 	}
-	defer vk.DestroySemaphore(deviceHandle, imageAvailableSemaphore, nil)
-	defer vk.DestroySemaphore(deviceHandle, renderingFinishedSemaphore, nil)
+	defer imageAvailableSemaphore.Destroy()
+	defer renderingFinishedSemaphore.Destroy()
 
 	// Swap chain
 	var surfaceCapabilities vk.SurfaceCapabilities
@@ -533,7 +531,7 @@ func main() {
 	fmt.Println("Drawing")
 	for !framework.ShouldClose() {
 		var imageIndex uint32
-		result := vk.AcquireNextImage(deviceHandle, swapchain, vk.MaxUint64, imageAvailableSemaphore, vk.NullFence, &imageIndex)
+		result := vk.AcquireNextImage(deviceHandle, swapchain, vk.MaxUint64, imageAvailableSemaphore.Handle(), vk.NullFence, &imageIndex)
 		switch result {
 		case vk.Success:
 			fallthrough
@@ -550,7 +548,7 @@ func main() {
 			SType:              vk.StructureTypeSubmitInfo,
 			WaitSemaphoreCount: 1,
 			PWaitSemaphores: []vk.Semaphore{
-				imageAvailableSemaphore,
+				imageAvailableSemaphore.Handle(),
 			},
 			PWaitDstStageMask: []vk.PipelineStageFlags{
 				vk.PipelineStageFlags(vk.PipelineStageTransferBit),
@@ -561,7 +559,7 @@ func main() {
 			},
 			SignalSemaphoreCount: 1,
 			PSignalSemaphores: []vk.Semaphore{
-				renderingFinishedSemaphore,
+				renderingFinishedSemaphore.Handle(),
 			},
 		}
 		if result := vk.QueueSubmit(graphicsQueue, 1, []vk.SubmitInfo{
@@ -575,7 +573,7 @@ func main() {
 			SType:              vk.StructureTypePresentInfo,
 			WaitSemaphoreCount: 1,
 			PWaitSemaphores: []vk.Semaphore{
-				renderingFinishedSemaphore,
+				renderingFinishedSemaphore.Handle(),
 			},
 			SwapchainCount: 1,
 			PSwapchains: []vk.Swapchain{
