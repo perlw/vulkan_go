@@ -41,14 +41,14 @@ func vkString(str string) string {
 	return str
 }
 
-const APP_NAME = "Abyssal Drifter"
-const RES_WIDTH = 640
-const RES_HEIGHT = 480
+const AppName = "Abyssal Drifter"
+const ResWidth = 640
+const ResHeight = 480
 
 func main() {
-	log := logger.New(APP_NAME)
+	log := logger.New(AppName)
 
-	framework, err := myr.New(APP_NAME, RES_WIDTH, RES_HEIGHT)
+	framework, err := myr.New(AppName, ResWidth, ResHeight)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -110,8 +110,8 @@ func main() {
 		ImageFormat:     format.Format,
 		ImageColorSpace: format.ColorSpace,
 		ImageExtent: vk.Extent2D{
-			Width:  RES_WIDTH,
-			Height: RES_HEIGHT,
+			Width:  ResWidth,
+			Height: ResHeight,
 		},
 		ImageArrayLayers:      1,
 		ImageUsage:            vk.ImageUsageFlags(vk.ImageUsageColorAttachmentBit | vk.ImageUsageTransferDstBit),
@@ -189,8 +189,8 @@ func main() {
 	}
 
 	// TODO: Use single framebuffer, render to texture, then make swapchain copy from texture
-	framebufferWidth := uint32(RES_WIDTH)
-	framebufferHeight := uint32(RES_HEIGHT)
+	framebufferWidth := uint32(ResWidth)
+	framebufferHeight := uint32(ResHeight)
 	framebuffers := make([]vk.Framebuffer, len(swapChainImages))
 	framebufferViews := make([]vk.ImageView, len(swapChainImages))
 	for i, img := range swapChainImages {
