@@ -38,12 +38,11 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 		return nil, err
 	}
 
+	extensions := m.window.GetRequiredInstanceExtensions()
 	m.instance, err = pompeii.NewInstance(appName, engineName, []string{
 		"VK_LAYER_LUNARG_standard_validation",
 		"VK_LAYER_LUNARG_assistant_layer",
-	}, []string{
-		"VK_EXT_debug_report",
-	})
+	}, append(extensions, "VK_EXT_debug_report"))
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +63,7 @@ func New(appName string, resWidth, resHeight int) (*Myr, error) {
 	}
 	m.log.Log("Picked: %s\n", m.gpu.Name)
 
-	m.surface, err = pompeii.NewWindowSurface(m.instance, m.window.GLFWWindow())
+	m.surface, err = pompeii.NewWindowSurface(m.instance, m.window)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package pompeii
 
 import (
 	"github.com/pkg/errors"
+	"github.com/vulkan-go/glfw/v3.3/glfw"
 	vk "github.com/vulkan-go/vulkan"
 )
 
@@ -20,7 +21,7 @@ type WindowSurface struct {
 	vk *windowSurfaceVk
 }
 
-func NewWindowSurface(instance *Instance, windowHandle uintptr) (*WindowSurface, error) {
+func NewWindowSurface(instance *Instance, window *glfw.Window) (*WindowSurface, error) {
 	w := WindowSurface{
 		instance: instance,
 		vk: &windowSurfaceVk{
@@ -28,9 +29,14 @@ func NewWindowSurface(instance *Instance, windowHandle uintptr) (*WindowSurface,
 		},
 	}
 
-	if result := vk.CreateWindowSurface(w.instance.Handle(), windowHandle, nil, &w.vk.surface); result != vk.Success {
-		return nil, errors.Wrap(vk.Error(result), "create window surface")
+	surface, err := window.CreateWindowSurface(instance.Handle(), nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "create window surface")
 	}
+	w.vk.surface = vk.SurfaceFromPointer(surface)
+	//if result := vk.CreateGLFWSurface(w.instance.Handle(), windowHandle, nil, &w.vk.surface); result != vk.Success {
+	//return nil, errors.Wrap(vk.Error(result), "create window surface")
+	//}
 
 	return &w, nil
 }

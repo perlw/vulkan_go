@@ -1,6 +1,12 @@
 github.com/pkg/errors v0.8.0 h1:WdK/asTD0HN+q6hsWO3/vpuAkAr+tw6aNJNDFFf0+qw=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
+github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
+github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/vulkan-go/glfw v0.0.0-20161111133615-72ceac625e01 h1:JFEFqS0Lj/j8P5186eZAxUhyVZvhXZnfFN8w8aDSlU4=
 github.com/vulkan-go/glfw v0.0.0-20161111133615-72ceac625e01/go.mod h1:qui9jo5J26j9fXv2x3bySGThxYkQZt4SgsPIZRtZAbQ=
+github.com/vulkan-go/glfw v0.0.0-20190520160600-32f33e359ff2 h1:jPnSXM1EM+6J1MbKbUZvQWkuS6Z9lPWRxTHn1NPsyNY=
+github.com/vulkan-go/glfw v0.0.0-20190520160600-32f33e359ff2/go.mod h1:qui9jo5J26j9fXv2x3bySGThxYkQZt4SgsPIZRtZAbQ=
 github.com/vulkan-go/vulkan v0.0.0-20180221054523-f7f461182f98 h1:Dw9gs92nvjpjm6rBWkM/0dy/jfXpqQ2JQTJ5N/Ip1Nw=
 github.com/vulkan-go/vulkan v0.0.0-20180221054523-f7f461182f98/go.mod h1:X6Qqg0j5A5cYHhFXUOl6TL/vYdyh/ajvyCvh+sEHQFI=
+github.com/vulkan-go/vulkan v0.0.0-20181015060211-df48e8cc1538 h1:mS2FkUtbSHJ3Nd3TUlX88zQa5XsyUNFZ+BRD7ZwWkUI=
+github.com/vulkan-go/vulkan v0.0.0-20181015060211-df48e8cc1538/go.mod h1:X6Qqg0j5A5cYHhFXUOl6TL/vYdyh/ajvyCvh+sEHQFI=

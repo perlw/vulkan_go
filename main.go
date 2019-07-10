@@ -48,6 +48,12 @@ const ResHeight = 480
 func main() {
 	log := logger.New(AppName)
 
+	procAddr := glfw.GetVulkanGetInstanceProcAddress()
+	if procAddr == nil {
+		panic("GetInstanceProcAddress is nil")
+	}
+	vk.SetGetInstanceProcAddr(procAddr)
+
 	framework, err := myr.New(AppName, ResWidth, ResHeight)
 	if err != nil {
 		panic(err.Error())

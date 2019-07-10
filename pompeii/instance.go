@@ -35,7 +35,8 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 	}
 
 	debug := false
-	activeExtensions := vk.GetRequiredInstanceExtensions()
+	// activeExtensions := vk.GetRequiredInstanceExtensions()
+	activeExtensions := make([]string, 0, 10)
 	if extensions != nil {
 		available, err := getAvailableInstanceExtensions()
 		if err != nil {
@@ -61,7 +62,7 @@ func NewInstance(appName, engineName string, layers, extensions []string) (*Inst
 			ApplicationVersion: vk.MakeVersion(1, 0, 0),
 			PEngineName:        vkString(engineName),
 			EngineVersion:      vk.MakeVersion(0, 0, 1),
-			ApiVersion:         vk.ApiVersion10,
+			ApiVersion:         vk.ApiVersion11,
 		},
 		EnabledLayerCount:       uint32(len(activeLayers)),
 		PpEnabledLayerNames:     activeLayers,
